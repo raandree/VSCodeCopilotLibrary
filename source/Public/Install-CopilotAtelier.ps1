@@ -8,7 +8,9 @@ function Install-CopilotAtelier
             Copies the Agents, Instructions, Skills, Prompts, and Hooks
             directories to the canonical target, links the well-known
             ~/.copilot discovery folders to that target, merges the VS Code
-            settings and keybindings, and records the deployed version.
+            settings and keybindings, and records the deployed version and
+            SHA-256 of each owned file. Updates preserve user-added files and
+            refuse conflicts with locally changed files before writing.
 
             The canonical target is ~/OneDrive/CopilotAtelier when OneDrive is
             available and ~/CopilotAtelier otherwise. The command is idempotent:
@@ -89,6 +91,8 @@ function Install-CopilotAtelier
         $ContentPath = Get-CopilotAtelierContentPath
     }
 
+    $ContentPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($ContentPath)
+
     <#
         Deployed directory name -> source path inside the content root. Every
         Copilot-specific component lives under the Agent Plugins 1.0 client
@@ -116,6 +120,11 @@ function Install-CopilotAtelier
     }
 
     $path = Get-CopilotAtelierPath
+    $deploymentPlan = Get-CopilotAtelierDeploymentPlan -ContentPath $ContentPath -TargetPath $path.TargetPath -Directory $customizationDirectory
+    if ($deploymentPlan.UnownedFiles.Count -gt 0)
+    {
+        Write-Warning -Message "Preserved $($deploymentPlan.UnownedFiles.Count) matching untracked file(s) without claiming ownership. Uninstall will leave them untouched."
+    }
     $timestamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 
     if (-not (Test-Path -LiteralPath $path.SettingsDirectory))
@@ -232,73 +241,54 @@ function Install-CopilotAtelier
             Set-Content -LiteralPath $path.SettingsPath -Encoding UTF8
     }
 
-    <#
-        Only one location is populated: OneDrive when available, otherwise the
-        user profile. A stale local copy from an earlier run is removed when
-        OneDrive is now in use.
-    #>
     if ($path.OneDriveRoot -and (Test-Path -LiteralPath $path.LegacyLocalPath))
     {
-        Remove-Item -LiteralPath $path.LegacyLocalPath -Recurse -Force
-
-        Write-Information -MessageData "Removed legacy local copy: $($path.LegacyLocalPath)"
+        Write-Warning -Message "Preserved legacy local tree '$($path.LegacyLocalPath)': ownership cannot be assumed."
     }
 
     foreach ($directoryName in $customizationDirectory.Keys)
     {
         $destination = Join-Path -Path $path.TargetPath -ChildPath $directoryName
-
-        if (Test-Path -LiteralPath $destination)
-        {
-            Remove-Item -LiteralPath $destination -Recurse -Force
-
-            Write-Information -MessageData "Cleared: $destination"
-        }
-
         New-Item -ItemType Directory -Path $destination -Force | Out-Null
-
-        Write-Information -MessageData "Created: $destination"
-
-        $source = Join-Path -Path $ContentPath -ChildPath $customizationDirectory[$directoryName]
-
-        if (Test-Path -LiteralPath $source)
-        {
-            Copy-Item -Path (Join-Path -Path $source -ChildPath '*') -Destination $destination -Recurse -Force
-
-            Write-Information -MessageData "Copied:  $source -> $destination"
-        }
-        else
-        {
-            Write-Information -MessageData "Skipped: $source (not found in the module content)"
-        }
     }
 
-    <#
-        Releases before the Agent Plugins 1.0 layout deployed capitalised names.
-        A case-insensitive filesystem reuses the directory the loop above just
-        rebuilt, but a case-sensitive one keeps the old copy beside the new one,
-        where it would shadow nothing yet drift forever.
-    #>
-    $legacyDirectoryName = @('Agents', 'Instructions', 'Skills', 'Prompts', 'Hooks', 'Keybindings')
-
-    <#
-        The target tree only exists after the loop above created it. Under
-        -WhatIf that creation is skipped, so guard the enumeration against a
-        missing path instead of letting Get-ChildItem throw a terminating error.
-    #>
-    $staleDirectory = @(
-        if (Test-Path -LiteralPath $path.TargetPath)
-        {
-            Get-ChildItem -LiteralPath $path.TargetPath -Directory |
-                Where-Object -FilterScript { $_.Name -cin $legacyDirectoryName }
-        }
-    )
-
-    foreach ($directory in $staleDirectory)
+    foreach ($action in $deploymentPlan.Actions)
     {
-        Remove-Item -LiteralPath $directory.FullName -Recurse -Force
-
-        Write-Information -MessageData "Removed legacy directory: $($directory.FullName)"
+        $destination = Join-Path -Path $path.TargetPath -ChildPath $action.Path
+        if ($PSCmdlet.ShouldProcess($destination, "$($action.Action) owned Customization file"))
+        {
+            Assert-CopilotAtelierRegularPath -LiteralPath $destination -RootPath $path.TargetPath
+            $currentHash = if (Test-Path -LiteralPath $destination)
+            {
+                (Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash
+            }
+            else
+            {
+                $null
+            }
+            if ($currentHash -ne $action.PreviousSha256)
+            {
+                throw "Deployment changed during apply: '$($action.Path)'."
+            }
+            if ($action.Action -eq 'Remove')
+            {
+                Remove-Item -LiteralPath $destination -Force -ErrorAction Stop
+            }
+            else
+            {
+                Assert-CopilotAtelierRegularPath -LiteralPath $action.SourcePath -RootPath $ContentPath
+                if ((Get-FileHash -LiteralPath $action.SourcePath -Algorithm SHA256 -ErrorAction Stop).Hash -ne $action.Sha256)
+                {
+                    throw "Payload changed during deployment: '$($action.Path)'."
+                }
+                New-Item -ItemType Directory -Path (Split-Path -Path $destination -Parent) -Force | Out-Null
+                Copy-Item -LiteralPath $action.SourcePath -Destination $destination -Force -ErrorAction Stop
+                if ((Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash -ne $action.Sha256)
+                {
+                    throw "Deployment verification failed for '$($action.Path)'."
+                }
+            }
+        }
     }
 
     $moduleVersion = $ExecutionContext.SessionState.Module.Version
@@ -310,15 +300,17 @@ function Install-CopilotAtelier
     }
 
     $deployment = [PSCustomObject] @{
+        SchemaVersion = 1
         Version     = $deployedVersion
         InstalledOn = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
         ContentPath = $ContentPath
+        Files       = @($deploymentPlan.Files)
     }
 
     if ($PSCmdlet.ShouldProcess($path.DeploymentManifestPath, 'Record the deployed version'))
     {
         $deployment |
-            ConvertTo-Json -Depth 3 |
+            ConvertTo-Json -Depth 5 |
             Set-Content -LiteralPath $path.DeploymentManifestPath -Encoding UTF8
     }
 
@@ -338,7 +330,7 @@ function Install-CopilotAtelier
         Opt-in and create-only. VS Code reads ~/.copilot/skills, ~/.claude/skills,
         and ~/.agents/skills, so these links register every Skill more than once
         in VS Code. An existing path belongs to that other tool: adopting it would
-        move the user's own skills into a tree the next run rebuilds.
+        take over the user's own skills without a separate ownership decision.
     #>
     if ($IncludeClaudeCodeLinks)
     {

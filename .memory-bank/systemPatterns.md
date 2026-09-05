@@ -1,8 +1,8 @@
 ---
 status: current
-last-verified: 2026-09-04
+last-verified: 2026-09-05
 owner: software-engineer
-source: .memory-bank/decisions
+source: .memory-bank/decisions and source/
 ---
 
 # System patterns
@@ -68,6 +68,12 @@ in `techContext.md`, not here.
     shared Definition of Done records deferred high-risk review explicitly.
 - The module carries the Customizations as payload; the installer translates
     Agent Plugins paths into the five `~/.copilot` Discovery siblings.
+- File equality is not deployment ownership. Preserve untracked matches;
+    removal requires both a recorded relative path and matching bytes. Source
+    and deployment trees must not overlap.
+- Validate paths at and below the selected root, including non-directory
+    ancestors and reparse points. Trusted parent aliases are outside that
+    boundary; hash checks are not an atomic transaction or a sandbox.
 - Hooks enforce unconditional rules; Instructions carry judgement calls. Hook
     commands resolve exact trusted roots, avoid pre-parse `$` substitution, and
     fail closed only for security controls.

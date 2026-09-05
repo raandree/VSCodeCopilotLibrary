@@ -15,6 +15,10 @@
     per-session file under LocalApplicationData, which the Stop hook reads to
     report the elapsed chat duration at the end of every turn. A model cannot
     read a clock, so neither number may be left to it.
+
+    COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS bounds injected context to
+    1024-16384 characters (default 4096). Invalid values use the default.
+    Long paths are omitted before lifecycle or safety guidance is shortened.
 .PARAMETER InputJson
     Hook payload as JSON. Defaults to reading standard input. Tests pass the
     payload directly so they do not depend on redirected input.
@@ -211,11 +215,32 @@ $line = @(
     'Never push or otherwise mutate a git remote unless the user asks in the current turn.'
 )
 
+$contextLimit = 4096
+$configuredLimit = 0
+if ([int]::TryParse([Environment]::GetEnvironmentVariable('COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS'), [ref]$configuredLimit) -and
+    $configuredLimit -ge 1024 -and $configuredLimit -le 16384) {
+    $contextLimit = $configuredLimit
+}
+
+$additionalContext = $line -join ' '
+if ($additionalContext.Length -gt $contextLimit) {
+    $line[1] = if ($memoryBankExists) {
+        'A Memory Bank exists in the working directory. Read its index and apply its routes before the first tool call.'
+    } else {
+        'The Memory Bank probe found no index in the working directory. Check before initializing; create only missing files for durable work.'
+    }
+    $additionalContext = $line -join ' '
+}
+if ($additionalContext.Length -gt $contextLimit) {
+    $line[3] = 'Close every reply with the measured Get-SessionElapsed.ps1 output in POST-FLIGHT. The reader is beside the SessionStart hook.'
+    $additionalContext = $line -join ' '
+}
+
 $output = [ordered]@{
     continue = $true
     hookSpecificOutput = [ordered]@{
         hookEventName = 'SessionStart'
-        additionalContext = ($line -join ' ')
+        additionalContext = $additionalContext
     }
 }
 

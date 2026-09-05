@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-08-01
+last-verified: 2026-09-05
 owner: software-engineer
 source: build.yaml and source/
 ---
@@ -29,12 +29,10 @@ Nothing in building, installing, or using the module needs it.
 
 ## Module layout
 
-`source/` holds the module: the manifest, an empty placeholder root module that
-ModuleBuilder fills, `Public/` with the three exported commands, and `Private/`
-with the path, link, JSONC, and keybinding helpers. The Customization
-directories stay at the repository root and are copied into the built module by
-`.build/Copy_Customizations_To_Output.build.ps1`, listed under
-`CustomizationDirectory` in `build.yaml`. The built module lands in
+`source/` holds the manifest, the empty root module that ModuleBuilder fills,
+five public commands, and private deployment, path, link, JSONC, and keybinding
+helpers. `.build/Copy_Customizations_To_Output.build.ps1` copies the root
+Customization directories listed in `build.yaml` into the built module at
 `output/module/CopilotAtelier/<version>/`.
 
 > Sampler 0.120.0 ships a `WorkspaceDependencies` task whose
@@ -49,6 +47,8 @@ directories stay at the repository root and are copied into the built module by
 | `Install-CopilotAtelier` | Deploy the Customizations, link `~/.copilot`, merge settings and keybindings, write the Deployment record |
 | `Update-CopilotAtelier` | Compare against the Gallery, install a newer version, redeploy |
 | `Get-CopilotAtelierVersion` | Report installed version, deployed version, and currency |
+| `Test-CopilotAtelier` | Read-only deployment, hash, link, hook, and settings diagnostics |
+| `Uninstall-CopilotAtelier` | Remove unchanged owned files; preserve personal content and configuration |
 
 Never hand-edit `ModuleVersion` in `source/CopilotAtelier.psd1`; GitVersion
 supplies it at build time.
@@ -58,16 +58,17 @@ supplies it at build time.
 `Install-CopilotAtelier` deploys only these directories to the Canonical
 target:
 
-- `Agents/`
-- `Instructions/`
-- `Skills/`
-- `Prompts/`
-- `Hooks/`
+- `agents/`
+- `instructions/`
+- `skills/`
+- `prompts/`
+- `hooks/`
 
 The repository-local `.memory-bank/`, `tests/`, `Reference/`, the build system,
 `plugin.json`, and documentation are not copied. `Keybindings/keybindings.json`
-is merged into the VS Code user profile. `.copilotatelier.json` in the Canonical
-target records the deployed version.
+is merged into the VS Code user profile. `.copilotatelier.json` records the
+version and schema-1 owned relative paths with SHA-256. Matching untracked files
+remain unowned; legacy records cannot authorize removal.
 
 ## Discovery model
 
@@ -108,12 +109,9 @@ model so a retirement degrades instead of breaking every agent.
 
 ## Execution constraints
 
-- Run ordinary one-shot commands synchronously.
-- Run Pester and build entry points through the detached cross-platform
-  launcher under `Skills/long-running-job-monitor/scripts/`.
-- Never block the foreground with `Start-Sleep` or a polling loop.
-- Write transient test and build logs under `$env:TEMP`, never `output/`.
-- Never push or mutate remotes without an explicit current-turn request.
+Use the shared execution-safety Instruction: synchronous one-shot commands,
+detached Pester/build runs, temporary logs, and no foreground polling. Never
+mutate a remote without an explicit current-turn request.
 
 ## Validation
 
@@ -149,6 +147,9 @@ model so a retirement degrades instead of breaking every agent.
   `SkillFrontmatter.Tests.ps1` enforces a non-growing over-budget body baseline.
 - PowerShell changes require AST parsing, focused Pester, and PSScriptAnalyzer
   where available.
+- Pester is pinned to 5.7.1. `Initialize_TestResultSerialization` runs before
+  tests and serializes file, drive, and provider references as paths or labels;
+  raw provider metadata can stall `Export-Clixml` on both Windows hosts.
 - Markdown Customizations require frontmatter checks and clean editor or
   markdownlint diagnostics.
 

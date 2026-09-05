@@ -38,6 +38,8 @@ well-known `~/.copilot/` folders that VS Code and the Copilot CLI both read.
   - [3. Agent plugin](#3-agent-plugin)
 - [Building from Source](#building-from-source)
 - [Verifying It Works](#verifying-it-works)
+- [Deployment diagnostics and removal](#deployment-diagnostics-and-removal)
+- [Client verification boundaries](#client-verification-boundaries)
 - [Troubleshooting Skills](#troubleshooting-skills)
   - [YAML Frontmatter Is Required](#yaml-frontmatter-is-required)
   - [Blank Line After Frontmatter](#blank-line-after-frontmatter)
@@ -66,19 +68,29 @@ Update-CopilotAtelier -InformationAction Continue
 ```
 
 > [!NOTE]
-> Two other paths exist: a [repository clone](#2-repository-clone) for working on the library itself, and an [agent plugin](#3-agent-plugin) that installs straight from the Git URL and needs no PowerShell at all.
+> Two other paths exist: a [repository clone](#2-repository-clone) for working on the library itself, and an [agent plugin](#3-agent-plugin) that installs straight from the Git URL. The bundled hooks still require a PowerShell runtime.
 
 Full detail: [Setup on a New Machine](#setup-on-a-new-machine) · [Verifying It Works](#verifying-it-works) · [Building from Source](#building-from-source).
 
 ## Purpose
 
-VS Code's GitHub Copilot — and the GitHub Copilot CLI — both look for custom agents, instructions, skills, and prompt files under `%USERPROFILE%\.copilot\{agents,instructions,skills,prompts}`. By default these stay local to a single machine and never sync.
+VS Code discovers Customizations from well-known user locations. By default,
+those files stay local to a single machine. Other Copilot clients share some
+Discovery locations, but not every file type or runtime capability.
 
-CopilotAtelier solves that by storing the canonical files in a single folder named after the module (preferring OneDrive for cross-machine sync) and then linking the well-known `~/.copilot/*` discovery folders to that target with NTFS junctions. Write an agent once, use it from both the VS Code Copilot chat extension and the Copilot CLI, on every machine.
+CopilotAtelier stores the canonical files in one folder named after the module,
+preferring OneDrive for cross-machine sync, and links `~/.copilot/*` to that
+target. The shared files stay consistent; each client still needs the
+capabilities its selected Customizations require.
 
-No `chat.*FilesLocations` settings are written for agents, instructions, or skills — those three are auto-discovered by both clients via the junctions. Prompts are the exception: the VS Code chat extension does not auto-discover `~/.copilot/prompts`, so a single `chat.promptFilesLocations` entry is written for that one path. The CLI auto-discovers it on its own. Installation removes repo-owned location entries written by older releases so the same Instruction is not registered through both OneDrive and `~/.copilot`; unrelated user locations are preserved.
+No `chat.*FilesLocations` settings are written for agents, instructions, or
+skills. Prompts are VS Code-specific: installation registers
+`~/.copilot/prompts` in `chat.promptFilesLocations`. The Copilot CLI does not
+run VS Code Prompt files. Installation removes obsolete location entries for
+this library while preserving unrelated user locations.
 
-Only one canonical location is populated per machine (no duplicate mirror). If an earlier release left a stale local mirror behind, the next run cleans it up when OneDrive is present.
+Each deployment populates one Canonical target. Older local trees are reported
+and preserved because a directory name alone cannot establish ownership.
 
 ## Folder Structure
 
@@ -255,7 +267,12 @@ legacy source. Reapplying the same plan is safe; identical destinations report
 
 ### File Locations
 
-Discovery is junction-based for agents, instructions, and skills — `chat.agentFilesLocations`, `chat.instructionsFilesLocations`, and `chat.agentSkillsLocations` are not written, because both the VS Code Copilot chat extension and the GitHub Copilot CLI auto-discover the well-known `~/.copilot/{agents,instructions,skills}` paths. Installation removes the historical `~/CopilotAtelier/*` and `~/OneDrive/CopilotAtelier/*` entries for this repository while preserving unrelated user locations. Prompts are the exception: VS Code Copilot Chat reads prompts only from `%APPDATA%\Code\User\prompts` and from paths listed in `chat.promptFilesLocations` (only the CLI auto-discovers `~/.copilot/prompts`), so a single `chat.promptFilesLocations` entry is written for `${userHome}/.copilot/prompts`. The five Customization folders are copied to one Canonical target and NTFS junctions are created under `%USERPROFILE%\.copilot\` so both clients see the same files:
+Discovery links expose agents, instructions, and skills without additional
+location settings. Installation removes historical `~/CopilotAtelier/*` and
+`~/OneDrive/CopilotAtelier/*` entries while preserving unrelated user locations.
+VS Code Prompts need the explicit `chat.promptFilesLocations` entry for
+`~/.copilot/prompts`; they are not a Copilot CLI workflow. The five directories
+share one Canonical target:
 
 ```text
 %USERPROFILE%\.copilot\agents       --> <target>\Agents
@@ -350,7 +367,11 @@ Run `Get-Help Install-CopilotAtelier -Full` for the complete parameter reference
 Update-CopilotAtelier -InformationAction Continue
 ```
 
-`Update-CopilotAtelier` compares the installed version against the Gallery, installs a newer one if there is one, and then redeploys from it, so the discovery folders always match the module you have. Use `-Force` to redeploy the current version and `-SkipDeployment` to stage an update you will deploy later.
+`Update-CopilotAtelier` compares the installed version against the Gallery,
+installs a newer one if available, and redeploys its owned files. User-added
+files remain in place. A conflict with a locally changed file stops deployment;
+`-Force` does not override that protection. Use `-Force` to redeploy the current
+version and `-SkipDeployment` to stage an update you will deploy later.
 
 `Get-CopilotAtelierVersion` answers "is what I have actually deployed?":
 
@@ -377,21 +398,39 @@ When OneDrive is present the canonical target lives inside it, so a second machi
 # From a local clone
 & "<path-to-clone>\Setup-CopilotSettings.ps1"
 
-# Or from a OneDrive-synced clone
-& "$env:USERPROFILE\OneDrive\CopilotAtelier\Setup-CopilotSettings.ps1"
+# Or from a OneDrive-synced clone outside the Canonical target
+& "$env:USERPROFILE\OneDrive\CopilotAtelier-src\Setup-CopilotSettings.ps1"
 ```
 
 [`Setup-CopilotSettings.ps1`](Setup-CopilotSettings.ps1) dot-sources the module commands from `source/` and runs `Install-CopilotAtelier` against the clone, so the working tree is deployed without building or installing the module first.
+
+Keep the clone outside the Canonical target. Overlapping source and deployment
+trees are rejected before writing, including during `-WhatIf`.
 
 3. Restart VS Code.
 
 ### What either path does
 
-The customizations are copied into `~/OneDrive/CopilotAtelier/` when OneDrive is detected, or into `~/CopilotAtelier/` otherwise. NTFS junctions (symbolic links on macOS and Linux) at `~/.copilot/{agents,instructions,skills,prompts,hooks}` then point to that target, so both the VS Code Copilot chat extension and the GitHub Copilot CLI pick up the same files. Your VS Code `settings.json` and `keybindings.json` are patched idempotently with timestamped backups, and the deployed version is recorded in `<target>/.copilotatelier.json`. If a stale `~/CopilotAtelier/` mirror exists from a previous dual-copy run, it is removed when OneDrive is now used. If a pre-existing non-empty folder is found at any of the link paths, you are asked before it is deleted (and its contents are copied into the target first).
+The Customizations are copied into `~/OneDrive/CopilotAtelier/` when OneDrive
+is detected, or into `~/CopilotAtelier/` otherwise. Discovery links expose the
+five deployed directories. VS Code settings and keybindings are merged with
+timestamped backups. The Deployment record at `<target>/.copilotatelier.json`
+stores the version and each owned file's relative path and SHA-256.
+
+Installation validates the complete file plan before writing, preserves
+untracked files and legacy trees, and retires only unchanged owned files.
+Source and destination hashes are rechecked during apply. A non-empty real
+Discovery directory remains untouched unless `-Force` requests a lossless
+merge; conflicting content is still preserved. Reparse points at or below the
+selected payload and deployment roots are refused, not followed. Trusted parent
+aliases remain supported. Do not run deployment and removal concurrently;
+these checks are not a filesystem transaction or a sandbox.
 
 ### 3. Agent plugin
 
-The repository is also an [Agent Plugins 1.0](https://agent-plugins.org/) package, so it installs straight from the Git URL in VS Code, the GitHub Copilot CLI, and the GitHub Copilot app — no clone, no PowerShell:
+The repository is also an [Agent Plugins 1.0](https://agent-plugins.org/)
+package, installable from its Git URL without manually cloning or installing
+the PowerShell module. Hook execution still needs PowerShell:
 
 1. Run **Chat: Install Plugin From Source** from the Command Palette.
 2. Enter `https://github.com/raandree/CopilotAtelier`.
@@ -411,7 +450,11 @@ Plugin-provided skills appear as `/copilot-atelier:<skill>` and update automatic
 > discovery compatibility, not proof of identical runtime behavior. Agent
 > Skills are the portable behavior layer defined by Agent Plugins 1.0.
 
-Keybindings are not a plugin component type at all. Install the module from the Gallery if you want those too — the paths are complementary, and the [Deployment record](#verifying-it-works) reports whichever version is actually deployed.
+Keybindings are not a plugin component type. The module can supply them, but
+it also deploys the Customizations: enabling both installation paths in the
+same client can duplicate Discovery or hook execution. Choose one active path
+per client and verify its loaded locations. The Deployment record describes
+only the module or clone deployment, never the native plugin cache.
 
 ### Sensitive local-data research
 
@@ -472,6 +515,10 @@ The version comes from [GitVersion](https://gitversion.net/) via [`GitVersion.ym
 
 ## Verifying It Works
 
+Start with `Test-CopilotAtelier` for a module or clone deployment, then verify
+Discovery in the client. A local health report cannot prove that an editor has
+loaded the files.
+
 - **Agents**: In Copilot Chat, check the agents dropdown — your custom agents should appear
 - **Instructions**: Type `/instructions` in chat to see the Configure Instructions menu
 - **Skills**: Type `/` in chat to see skills as slash commands
@@ -479,6 +526,59 @@ The version comes from [GitVersion](https://gitversion.net/) via [`GitVersion.ym
 - **Hooks**: Run **Developer: Show Agent Debug Logs** and look for `Load Hooks` listing `~/.copilot/hooks`; hook output goes to the **GitHub Copilot Chat Hooks** channel in the Output panel
 - **Chat Customizations editor**: Click the gear icon in the Chat view (or run **Chat: Open Chat Customizations** from the Command Palette) to see all registered agents, instructions, skills, and prompts in one place
 - **Debug logs**: If customizations aren't being applied, open the ellipsis (**…**) menu in the Chat view → **Show Agent Debug Logs**
+
+## Deployment diagnostics and removal
+
+```powershell
+$report = Test-CopilotAtelier
+$report.Checks | Format-Table Code, Severity, Path, Message -Wrap
+Test-CopilotAtelier -Quiet
+Uninstall-CopilotAtelier -WhatIf
+```
+
+Diagnostics check file hashes, version drift, Discovery targets, required hook
+scripts, hook configuration, and VS Code settings without executing hooks or
+changing the profile. `IsHealthy` and `-Quiet` mean no error was found; inspect
+warnings for modified files, duplicate skill links, and legacy deployments.
+Pass `-TargetPath` to inspect or remove a specific deployment. Ambiguous OneDrive
+accounts produce an error instead of an unattended prompt.
+
+After reviewing the preview, run `Uninstall-CopilotAtelier`. It confirms once,
+removes only recorded files with matching hashes, and cleans empty managed
+directories and matching Discovery links. Modified files, untracked files,
+links serving retained content, settings, keybindings, environment variables,
+installed module versions, and native plugins remain untouched.
+
+Older Deployment records have no ownership hashes. Uninstall leaves them
+alone; install preserves matching untracked files without claiming ownership
+and refuses differing files. Hash equality alone never authorizes removal.
+Back up the old tree and reconcile conflicts before updating. Never use an
+older destructive installer to bypass a conflict. To roll back payload content,
+use the current installer with `-ContentPath` pointing at the older module's
+content, preview with `-WhatIf`, then apply after reviewing the plan. File-hash
+diagnostics cover recorded owned files, not all personal or legacy content.
+
+The safety boundary is the selected payload and deployment roots. Records and
+paths are validated as data, and neither diagnostics nor deployment executes
+payload content. Hashes detect drift, not authenticity: use trusted source
+content and protect the deployment directory from unauthorized writers.
+Concurrent or malicious same-user changes are not isolated by these checks.
+
+## Client verification boundaries
+
+| Component | Repository verification | Still requires client verification |
+|---|---|---|
+| PowerShell deployment | Sandboxed install, update, removal, links, settings, ownership, and `-WhatIf` tests | Filesystem permissions and cloud-sync behavior on the destination machine |
+| VS Code Customizations | Frontmatter, catalogue, tool bounds, and configured Discovery paths | Loaded entries, actual tool availability, and executed workflow quality |
+| Other Copilot clients | Shared plugin layout and portable Skill structure | Product-specific tools, model priority arrays, handoffs, and hook event behavior |
+| Other Agent Skills clients | Portable Skill layout and optional skill Discovery links | Client-specific registration and runtime dependencies; no Custom agent or hook parity is implied |
+
+The configuration gate in
+[tests/CustomizationSecurity.Tests.ps1](tests/CustomizationSecurity.Tests.ps1)
+rejects wildcard tools, unbounded delegation, Prompt tool expansion, unsafe
+hook timeouts, and persistent remote authorization. Existing unrestricted MCP
+access has a named, shrink-only baseline; passing the gate does not turn that
+debt into containment. Runtime agent quality still needs behavioral evals.
 
 ## Troubleshooting Skills
 

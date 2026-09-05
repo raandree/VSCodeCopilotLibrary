@@ -1,6 +1,6 @@
 ---
 description: Report this project's Copilot token, API call, and model usage from the session store.
-argument-hint: repository name, "all", or a trailing day count (default: current repository, all time)
+argument-hint: 'repository name, "all", or a trailing day count (default: current repository, all time)'
 ---
 
 # Copilot usage report

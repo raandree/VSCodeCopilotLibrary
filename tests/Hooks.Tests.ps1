@@ -295,6 +295,32 @@ Describe 'Add-SessionContext' -Tag 'Unit' {
         $parsed.hookSpecificOutput.additionalContext | Should -Match 'Memory Bank'
     }
 
+    It 'bounds session context while retaining the lifecycle and remote-mutation rules' -ForEach @(
+        @{ Limit = '1024'; ExpectedLimit = 1024 }
+        @{ Limit = 'invalid'; ExpectedLimit = 4096 }
+        @{ Limit = '0'; ExpectedLimit = 4096 }
+        @{ Limit = '999999'; ExpectedLimit = 4096 }
+    ) {
+        $originalLimit = $env:COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS
+        $env:COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS = $Limit
+        try {
+            $payload = @{ cwd = (Join-Path $TestDrive ('long-path-' + ('x' * 5000))); session_id = 'bounded-context' } | ConvertTo-Json -Compress
+            $result = script:Invoke-SessionStart -Payload $payload
+            $result.ExitCode | Should -Be 0 -Because $result.Output
+            $context = ($result.Output | ConvertFrom-Json).hookSpecificOutput.additionalContext
+
+            $context.Length | Should -BeLessOrEqual $ExpectedLimit
+            $context | Should -Match 'Memory Bank'
+            $context | Should -Match 'PRE-FLIGHT'
+            $context | Should -Match 'POST-FLIGHT'
+            $context | Should -Match 'Never push'
+            $context | Should -Match 'UTC'
+            Test-Path -LiteralPath (Join-Path $script:clockRoot 'session-bounded-context.json') | Should -BeTrue
+        } finally {
+            $env:COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS = $originalLimit
+        }
+    }
+
     It 'strips control characters from a hostile workspace path' {
         $payload = [ordered]@{
             hook_event_name = 'SessionStart'

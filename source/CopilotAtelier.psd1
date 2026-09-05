@@ -19,6 +19,8 @@
     FunctionsToExport = @(
         'Get-CopilotAtelierVersion'
         'Install-CopilotAtelier'
+        'Test-CopilotAtelier'
+        'Uninstall-CopilotAtelier'
         'Update-CopilotAtelier'
     )
 

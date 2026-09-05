@@ -5,8 +5,8 @@ Instruction, a hook does not depend on the model choosing to obey it: VS Code
 executes the command and honours its exit code.
 
 Setup deploys this folder to the Canonical target and links it to
-`~/.copilot/hooks`, which VS Code, the GitHub Copilot CLI, and Claude Code all
-read as the user-level hook location.
+`~/.copilot/hooks`. Hook discovery and event behavior are client-specific;
+verify loading in the client being used rather than assuming cross-client parity.
 
 ## Contents
 
@@ -61,6 +61,19 @@ It also starts the session clock described below, and hands the agent the
 absolute path of `Get-SessionElapsed.ps1`. The agent cannot resolve that path
 itself — the script sits under `~/.copilot` when deployed and under the plugin
 root when installed as a plugin, which is the probe `hooks.json` already carries.
+
+### Session context budget
+
+Injected context defaults to a 4096-character limit. Set
+`COPILOT_ATELIER_SESSION_CONTEXT_MAX_CHARS` to an integer from 1024 through
+16384 to change it; invalid values use the default. Oversized paths are omitted
+before any lifecycle guidance, and the clock still runs. This is a character
+budget for one hook, not a token count or a live context-window estimate.
+
+There is no master-off profile: all four shipped hooks serve lifecycle or
+safety obligations. The context budget never disables remote-mutation checks.
+Do not persist `COPILOT_ATELIER_ALLOW_REMOTE` in hook configuration; it remains
+a per-command authorization supplied only after the user's current request.
 
 ## The session clock
 
@@ -180,8 +193,12 @@ which survives because Instructions are re-sent with every request.
   `[Environment]::GetEnvironmentVariable(...)` and the blocking exit code from
   `Get-Variable -Name LASTEXITCODE -ValueOnly`. Keep it that way, or the hook
   silently stops guarding anything.
-- **Timeout.** The default hook timeout is 30 seconds; these hooks declare 20.
-  Increase `timeout` if a slow filesystem delays the Memory Bank probe.
+- **Timeout.** These hooks declare 20 seconds. The configuration gate accepts
+  explicit limits from 1 through 30 seconds. Investigate slow filesystem access
+  before changing the limit; do not replace a bounded hook with an unlimited one.
+- **Deployment drift.** Run `(Test-CopilotAtelier).Checks` to inspect missing
+  scripts, changed files, and Discovery targets. This is read-only and never
+  executes a hook as a health check.
 
 ## Safety
 

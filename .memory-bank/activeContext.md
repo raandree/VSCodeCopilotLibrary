@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-04
+last-verified: 2026-09-05
 owner: software-engineer
 source: current task evidence
 ---
@@ -9,43 +9,36 @@ source: current task evidence
 
 ## Current focus
 
-Pulled `main` through `e23eb7e` and reconciled the staged job-monitor work
-with the upstream migration and agent updates.
+Native deployment safety and diagnostics are implemented on
+`ai/deployment-safety-and-diagnostics`. Installation records owned file hashes,
+preserves untracked content, refuses conflicts and overlapping source trees,
+and rechecks writes. Matching bytes alone never confer ownership. Diagnostics
+are read-only; uninstall removes only unchanged owned files and preserves
+personal content and configuration. Root-scoped guards support parent aliases.
 
-The execution-safety Instruction now loads `long-running-job-monitor` at
-command launch for agent-initiated runs, with detachment and monitoring
-as one obligation. Conditional and misplaced pointers caused the loading gap;
-the four observed anti-patterns are named beside launch guidance. The Skill
-description is 989 characters. Earlier validation passed 960 tests; the
-description-only eval moved train from 5/7 to 6/7, validation stayed 4/5,
-and the agent-initiated case stayed 0/3. The Instruction carries that trigger.
+SessionStart context is bounded without a hook-off switch. The configuration
+gate checks tools, delegation, Prompt overrides, and hook limits, with twelve
+named unrestricted-MCP exceptions. Usage Prompt YAML is repaired. Relative
+source paths resolve through PowerShell before filesystem planning.
+
+Build and full test gates pass: 1,137 passed, 60 existing skips, 83.63% coverage
+against 65%. Windows PowerShell 5.1: 264 passed, one platform skip. Parsing,
+PSScriptAnalyzer, Markdown lint/rendering, and diff checks are clean. Pester is
+pinned to 5.7.1; result export retains paths and labels instead of traversing
+live provider metadata. One pre-existing simulated-backend warning remains.
+No active profile was changed and nothing was pushed. Live cloud sync and
+non-Windows clients were not exercised; `review: on` is recommended before
+publishing the new removal API and deployment ownership boundary.
 
 ## Previous focus: role-record migration
 
-Legacy career, legal, and tax Memory Bank records now have a deterministic
-migration path. `New-MemoryBankRoleMigrationPlan.ps1` inventories only direct
-children of one explicitly selected repository, classifies known names, and
-requires user decisions for ambiguous files. Saved plans contain metadata,
-hashes, and decisions but no record contents.
-
-`Invoke-MemoryBankRoleMigration.ps1` validates the complete plan before any
-write, rejects changed sources, conflicts, cross-repository plans, path escapes,
-and reparse points, then performs exclusive byte-for-byte copies and verifies
-SHA-256. It never overwrites, moves, splits, or deletes a legacy source and is
-idempotent for identical destinations. Installation and update remain outside
-the migration path because they do not own repository-local private records.
-
-Career Coach, Legal Researcher, and Tax Researcher now load `memory-bank` before
-creating an empty namespaced replacement, resolve ambiguity through
-`vscode_askQuestions`, preview with `-WhatIf`, and require explicit
-confirmation. The focused migration suite passes 27/27. The final detached
-`build,test` gate passes 1,057 with 0 failures, 61 skips, and 78.51% coverage
-against 65%. AST parsing, PSScriptAnalyzer, editor diagnostics, and whitespace
-checks are clean.
-
-Behavioral migration cases are authored in `skills/memory-bank/notes-evals.md`
-but remain unexecuted because Waza, ShellPilot, and a model backend are absent.
-The migration is now on `main` and `origin/main` in commit `e23eb7e`.
+Legacy role records use metadata-only planning, whole-plan validation, and
+verified copies without overwriting or deleting sources. The three role agents
+require explicit decisions and preview with `-WhatIf`. The migration shipped
+in `e23eb7e`; focused tests passed 27/27 and the full gate passed 1,057 with
+78.51% coverage. Behavioral cases remain unexecuted without a model backend.
+Installation never owns those private repository records. Details are in the
+changelog and `skills/memory-bank/notes-evals.md`.
 
 ## Previously: the `long-running-job-monitor` discovery failure
 

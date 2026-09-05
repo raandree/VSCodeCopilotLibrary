@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-04
+last-verified: 2026-09-05
 owner: software-engineer
 source: CHANGELOG.md and git history
 ---
@@ -14,6 +14,14 @@ Copilot Atelier is published to the PowerShell Gallery and released at `v4.0.0`
 is tracked under `[Unreleased]` in `CHANGELOG.md`.
 
 ## Recent milestones
+
+- **2026-09-05**: Implemented hash-aware deployment and conservative removal,
+  read-only diagnostics, bounded SessionStart context, and configuration gates.
+  Added ownership, path, concurrency, serialization, and security regressions;
+  repaired usage Prompt YAML and pinned Pester 5.7.1. Build/test: 1,137 passed,
+  60 existing skips, 83.63% coverage; Windows PowerShell 5.1: 264 passed, one
+  platform skip. Changes remain on a local topic branch; no active profile or
+  remote was changed. One pre-existing simulated-backend warning remains.
 
 - **2026-09-04**: Reconciled the job-monitor change with `main` at `e23eb7e`.
   Execution-safety now loads the Skill at command launch, including
@@ -85,29 +93,9 @@ is tracked under `[Unreleased]` in `CHANGELOG.md`.
   format only, no `additionalContext` — and `PreToolUse` was rejected as a token
   cost on every call. Decision record 0024, revised the same day.
 
-- **2026-09-01**: Fixed three defects in `long-running-job-monitor` after a
-  45-minute live Hyper-V proof ran with the Skill never loaded: no cadence
-  tick, thirty silent minutes, two mid-job turns with no status line. The
-  `USE FOR:` list carried "live test" but not *proof*, that workspace's
-  canonical word for a live integration run, so the selector never matched — it
-  now names `live proof`, `proof harness`, `proof run`, `hour-long run`. The
-  structural half: arming the tick lived only in a later section, so step 2 now
-  requires it in the same turn as the launch, and the checklist item is
-  unconditional. E10 measures the trigger on vocabulary alone.
-
-- **2026-09-01**: Fixed an unbounded handoff loop in the `cycle: full` chain.
-  A raw transcript showed fifteen complete `software-engineer` ↔
-  `security-reviewer` round trips in one autopilot session (30 MB against a
-  ~600 KB norm), because both legs carried `send: true` and the only bound was
-  prose. The reviewer's *Fix Issues Found* leg is now `send: false`, so the
-  cycle still reaches the reviewer unattended but cannot re-enter
-  implementation without a click; the "after two rounds" wording is gone from
-  both agent bodies, the agents README, and the unreleased changelog entry.
-  `tests/DevelopmentCycle.Tests.ps1` now walks the whole handoff graph and
-  fails on any ring of `send: true` edges, and self-checks the detector against
-  a synthetic ring. The audit found no other closeable ring: `software-architect`
-  → `software-engineer` → `security-reviewer` is the only other `send: true`
-  path and the architect has no inbound edge.
+- **2026-09-01**: Fixed job-monitor discovery and same-turn heartbeat arming,
+  and bounded the development-cycle handoff graph by making the reviewer's
+  return user-gated. The changelog retains the incidents and detailed evidence.
 
 ## Stable capabilities
 

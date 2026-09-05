@@ -19,6 +19,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add read-only `Test-CopilotAtelier` deployment diagnostics and hash-aware `Uninstall-CopilotAtelier`, with explicit targets, non-interactive account resolution, and preservation of user content and configuration. See [deployment diagnostics and removal](README.md#deployment-diagnostics-and-removal).
+- Record per-file SHA-256 ownership in the Deployment record and validate paths and metadata before deployment or removal.
+- Bound SessionStart context to 4096 characters by default, configurable from 1024 through 16384 without disabling lifecycle or security hooks.
+- Gate Customization tool bounds, delegation, Prompt overrides, hook timeouts, and remote authorization with adversarial fixtures and a shrink-only MCP baseline. Extend the existing authoring guide with implementation selection and evidence-based pattern promotion.
+
 - **A repository-scoped migration for legacy career, legal, and tax Memory
   Bank records** (2026-09-04). The `memory-bank` Skill now separates planning
   from applying: it inventories only direct children of one selected
@@ -79,6 +84,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The duration formatter shipped with a bug the tests caught: `[int]1.5` *rounds* in PowerShell, so a 90-minute chat reported `2h 30m`. It floors explicitly now, and [`tests/Hooks.Tests.ps1`](tests/Hooks.Tests.ps1) pins five durations that sit where rounding and truncation disagree, alongside the injected reader path, the single-line output contract, the turn-in-progress arithmetic, the workspace preference, the shadowing regression, the clock-root containment, the read-only guarantee, the turn counter, the `stop_hook_active` continuation case, a corrupt clock, an unreadable payload, the absent `decision` field, and a `session_id` of `../../pwned`.
 
 ### Fixed
+
+- Preserve user-added files and legacy trees during reinstall; reject locally modified files, reparse-point paths, and intervening changes instead of rebuilding deployment directories destructively.
+- Quote the usage Prompt argument hint so its colon parses as YAML; validate every Prompt with a full YAML parser in the configuration security gate.
+- Pin Pester 5.7.1 and reject unsupported major versions in QA. Bound filesystem references in saved test reports to paths and labels so result export does not traverse live provider and assembly metadata; retain all test counts, failures, and coverage.
 
 - **Repair invalid Custom agent orchestration contracts** (2026-09-04). Give
   Security Reviewer and Technical Writer an executable `research-analyst`

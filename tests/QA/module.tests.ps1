@@ -131,6 +131,12 @@ Describe 'Release versioning' -Tag 'QA' {
 }
 
 Describe 'General module control' -Tag 'QA' {
+    It 'Should pin the supported Pester 5 dependency instead of following a new major' {
+        $requiredModules = Import-PowerShellDataFile -LiteralPath (Join-Path $script:projectPath 'RequiredModules.psd1')
+        $requiredModules.Pester | Should -Match '^5\.\d+\.\d+$'
+        (Get-Module -Name Pester).Version.Major | Should -Be 5
+    }
+
     It 'Should import without errors' {
         { Import-Module -Name $script:moduleName -Force -ErrorAction Stop } | Should -Not -Throw
 
@@ -141,6 +147,8 @@ Describe 'General module control' -Tag 'QA' {
         $expected = @(
             'Get-CopilotAtelierVersion'
             'Install-CopilotAtelier'
+            'Test-CopilotAtelier'
+            'Uninstall-CopilotAtelier'
             'Update-CopilotAtelier'
         )
 

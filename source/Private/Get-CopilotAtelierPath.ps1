@@ -16,6 +16,12 @@ function Get-CopilotAtelierPath
             The folder name used for the canonical target. Defaults to
             CopilotAtelier, which is also the module name.
 
+        .PARAMETER TargetPath
+            An explicitly selected Canonical target, bypassing account selection.
+
+        .PARAMETER NonInteractive
+            Fails with a directed error instead of prompting for an account.
+
         .OUTPUTS
             System.Management.Automation.PSCustomObject
 
@@ -31,7 +37,16 @@ function Get-CopilotAtelierPath
         [Parameter()]
         [ValidateNotNullOrEmpty()]
         [System.String]
-        $TargetName = 'CopilotAtelier'
+        $TargetName = 'CopilotAtelier',
+
+        [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [System.String]
+        $TargetPath,
+
+        [Parameter()]
+        [System.Management.Automation.SwitchParameter]
+        $NonInteractive
     )
 
     $isWindowsPlatform = [System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT
@@ -103,8 +118,22 @@ function Get-CopilotAtelierPath
 
     $oneDriveRoot = $null
 
-    if ($oneDriveCandidate.Count -gt 1)
+    if ($PSBoundParameters.ContainsKey('TargetPath'))
     {
+        $TargetPath = [System.IO.Path]::GetFullPath($TargetPath)
+        if ($TargetPath -eq [System.IO.Path]::GetPathRoot($TargetPath))
+        {
+            throw 'The Canonical target must not be a filesystem root.'
+        }
+        $TargetPath = $TargetPath.TrimEnd([char[]] '\/')
+    }
+    elseif ($oneDriveCandidate.Count -gt 1)
+    {
+        if ($NonInteractive)
+        {
+            throw 'Multiple OneDrive accounts detected. Specify -TargetPath to select the Canonical target without prompting.'
+        }
+
         $choice = @($oneDriveCandidate.Keys)
 
         $promptLine = for ($index = 0; $index -lt $choice.Count; $index++)
@@ -144,7 +173,11 @@ function Get-CopilotAtelierPath
         }
     }
 
-    $targetPath = if ($oneDriveRoot)
+    $targetPath = if ($PSBoundParameters.ContainsKey('TargetPath'))
+    {
+        $TargetPath
+    }
+    elseif ($oneDriveRoot)
     {
         Join-Path -Path $oneDriveRoot -ChildPath $TargetName
     }

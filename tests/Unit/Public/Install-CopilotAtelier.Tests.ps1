@@ -153,6 +153,20 @@ Describe 'Install-CopilotAtelier' -Tag 'Unit' {
             $manifestText | Should -Match '"InstalledOn":\s*"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z"'
         }
 
+        It 'Should record each deployed file with a relative path and SHA-256' {
+            $deployment = Get-Content -LiteralPath (Join-Path $script:targetPath '.copilotatelier.json') -Raw |
+                ConvertFrom-Json
+
+            $deployment.SchemaVersion | Should -Be 1
+            @($deployment.Files).Count | Should -Be 5
+
+            foreach ($file in $deployment.Files)
+            {
+                $file.Path | Should -Match '^(agents|instructions|skills|prompts|hooks)/marker\.md$'
+                $file.Sha256 | Should -Be (Get-FileHash -LiteralPath (Join-Path $script:targetPath $file.Path) -Algorithm SHA256).Hash
+            }
+        }
+
         It 'Should enable <Name>' -ForEach @(
             @{ Name = 'chat.includeApplyingInstructions'; Value = $true }
             @{ Name = 'chat.includeReferencedInstructions'; Value = $true }
@@ -260,6 +274,154 @@ Describe 'Install-CopilotAtelier' -Tag 'Unit' {
 
             { Install-CopilotAtelier -ContentPath $emptyPath -SkipCopilotCliEnvironment } |
                 Should -Throw -ExpectedMessage "*No customization directory found*"
+        }
+    }
+
+    Context 'When updating a deployed tree' {
+        BeforeEach {
+            $script:updateRoot = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+            $script:updateContent = Join-Path $script:updateRoot 'content'
+            Initialize-CustomizationContent -Path $script:updateContent
+            $script:updateOriginal = Enter-Sandbox -HomePath (Join-Path $script:updateRoot 'home') -ConfigPath (Join-Path $script:updateRoot 'config')
+            $script:updateResult = Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment
+        }
+
+        AfterEach {
+            Exit-Sandbox -Original $script:updateOriginal
+        }
+
+        It 'Should preserve user-added files without claiming ownership' {
+            $userFile = Join-Path $script:updateResult.TargetPath 'skills/personal.md'
+            Set-Content -LiteralPath $userFile -Value 'personal workflow'
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment | Out-Null
+
+            Get-Content -LiteralPath $userFile -Raw | Should -Match 'personal workflow'
+            $deployment = Get-Content -LiteralPath (Join-Path $script:updateResult.TargetPath '.copilotatelier.json') -Raw | ConvertFrom-Json
+            $deployment.Files.Path | Should -Not -Contain 'skills/personal.md'
+        }
+
+        It 'Should refuse a changed deployed file before writing settings or other files' {
+            $changedFile = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Set-Content -LiteralPath $changedFile -Value 'user change'
+            $settingsHash = (Get-FileHash -LiteralPath $script:updateResult.SettingsPath).Hash
+            $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
+            $recordHash = (Get-FileHash -LiteralPath $recordPath).Hash
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Force } |
+                Should -Throw -ExpectedMessage '*conflict*'
+
+            Get-Content -LiteralPath $changedFile -Raw | Should -Match 'user change'
+            (Get-FileHash -LiteralPath $script:updateResult.SettingsPath).Hash | Should -Be $settingsHash
+            (Get-FileHash -LiteralPath $recordPath).Hash | Should -Be $recordHash
+        }
+
+        It 'Should remove only unchanged files retired from the payload' {
+            Remove-Item -LiteralPath (Join-Path $script:updateContent 'skills/marker.md')
+            $userFile = Join-Path $script:updateResult.TargetPath 'skills/personal.md'
+            Set-Content -LiteralPath $userFile -Value 'keep me'
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment | Out-Null
+
+            Test-Path -LiteralPath (Join-Path $script:updateResult.TargetPath 'skills/marker.md') | Should -BeFalse
+            Test-Path -LiteralPath $userFile | Should -BeTrue
+        }
+
+        It 'Should update an unchanged owned file and refresh its hash' {
+            Set-Content -LiteralPath (Join-Path $script:updateContent 'skills/marker.md') -Value 'new release'
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment | Out-Null
+
+            $destination = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Get-Content -LiteralPath $destination -Raw | Should -Match 'new release'
+            $record = Get-Content -LiteralPath (Join-Path $script:updateResult.TargetPath '.copilotatelier.json') -Raw | ConvertFrom-Json
+            ($record.Files | Where-Object Path -EQ 'skills/marker.md').Sha256 | Should -Be (Get-FileHash -LiteralPath $destination).Hash
+        }
+
+        It 'Should preserve an owned file changed after planning' {
+            $changedPath = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Set-Content -LiteralPath (Join-Path $script:updateContent 'skills/marker.md') -Value 'new release'
+            Mock -CommandName ConvertFrom-Jsonc -ModuleName CopilotAtelier -MockWith {
+                $destination = Join-Path (Join-Path $env:HOME 'CopilotAtelier') 'skills/marker.md'
+                Set-Content -LiteralPath $destination -Value 'concurrent user change'
+                [pscustomobject]@{}
+            }
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment } |
+                Should -Throw -ExpectedMessage '*changed during*'
+            Get-Content -LiteralPath $changedPath -Raw | Should -Match 'concurrent user change'
+        }
+
+        It 'Should refuse a file blocking a destination directory before any writes' {
+            $sourceDirectory = Join-Path $script:updateContent 'skills/blocked'
+            New-Item -ItemType Directory -Path $sourceDirectory -Force | Out-Null
+            Set-Content -LiteralPath (Join-Path $sourceDirectory 'child.md') -Value 'new payload'
+            $blockingFile = Join-Path $script:updateResult.TargetPath 'skills/blocked'
+            Set-Content -LiteralPath $blockingFile -Value 'personal content'
+            $settingsDirectory = Split-Path -Parent $script:updateResult.SettingsPath
+            $backupCount = @(Get-ChildItem -LiteralPath $settingsDirectory -Filter '*.bak').Count
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment } |
+                Should -Throw -ExpectedMessage '*Deployment conflict*'
+
+            Get-Content -LiteralPath $blockingFile -Raw | Should -Match 'personal content'
+            @(Get-ChildItem -LiteralPath $settingsDirectory -Filter '*.bak').Count | Should -Be $backupCount
+        }
+
+        It 'Should support a trusted link above the selected payload root' {
+            $aliasPath = Join-Path $TestDrive ('parent-alias-' + [guid]::NewGuid().ToString('N'))
+            $linkType = if ([Environment]::OSVersion.Platform -eq [PlatformID]::Win32NT) { 'Junction' } else { 'SymbolicLink' }
+            New-Item -ItemType $linkType -Path $aliasPath -Target $script:updateRoot | Out-Null
+            try
+            {
+                { Install-CopilotAtelier -ContentPath (Join-Path $aliasPath 'content') -SkipCopilotCliEnvironment } |
+                    Should -Not -Throw
+            }
+            finally
+            {
+                [IO.Directory]::Delete($aliasPath, $false)
+            }
+        }
+
+        It 'Should not claim an identical file absent from the ownership record' {
+            $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
+            $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+            $record.Files = @($record.Files | Where-Object Path -NE 'skills/marker.md')
+            $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment | Out-Null
+
+            $updated = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+            $updated.Files.Path | Should -Not -Contain 'skills/marker.md'
+            Uninstall-CopilotAtelier -Confirm:$false | Out-Null
+            Test-Path -LiteralPath (Join-Path $script:updateResult.TargetPath 'skills/marker.md') | Should -BeTrue
+        }
+
+        It 'Should reject source content overlapping the Canonical target' {
+            $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
+            $before = (Get-FileHash -LiteralPath $recordPath).Hash
+
+            { Install-CopilotAtelier -ContentPath $script:updateResult.TargetPath -SkipCopilotCliEnvironment } |
+                Should -Throw -ExpectedMessage '*overlap*'
+
+            (Get-FileHash -LiteralPath $recordPath).Hash | Should -Be $before
+            Test-Path -LiteralPath (Join-Path $script:updateResult.TargetPath 'agents/marker.md') | Should -BeTrue
+        }
+
+        It 'Should resolve relative content from the current PowerShell location' {
+            Set-Content -LiteralPath (Join-Path $script:updateContent 'skills/marker.md') -Value 'relative update'
+            Push-Location -LiteralPath $script:updateRoot
+            try
+            {
+                Install-CopilotAtelier -ContentPath './content' -SkipCopilotCliEnvironment | Out-Null
+            }
+            finally
+            {
+                Pop-Location
+            }
+
+            $destination = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Test-Path -LiteralPath $destination -PathType Leaf | Should -BeTrue
+            Get-Content -LiteralPath $destination -Raw | Should -Match 'relative update'
         }
     }
 

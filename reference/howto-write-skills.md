@@ -1,6 +1,6 @@
 # How to Write Skills — Condensed Guide
 
-A two-page primer for authoring `Skills/**/SKILL.md` files in this repository. The full operating manual lives in [`Skills/skill-creator/SKILL.md`](../Skills/skill-creator/SKILL.md); this page is the short version with links to the canonical external sources.
+A compact primer for authoring `skills/**/SKILL.md` files in this repository. The full operating manual lives in [`skills/skill-creator/SKILL.md`](../skills/skill-creator/SKILL.md); this page is the short version with links to the canonical external sources.
 
 ## What a Skill is
 
@@ -9,7 +9,7 @@ A folder with a `SKILL.md` (YAML frontmatter + markdown body) plus optional `ref
 Progressive disclosure is the skills-level application of **context engineering** — the discipline of curating what enters the model's finite context window and when, so the agent sees exactly the information a step needs and nothing more. On-demand reference loading, tight descriptions, and the 500-line body cap are all context engineering: they keep dozens of skills available at a near-zero idle cost and pay the token price only when a skill actually fires.
 
 ```text
-Skills/<kebab-name>/
+skills/<kebab-name>/
 ├── SKILL.md         (required — ≤ 500 lines, description ≤ 1024 chars)
 ├── references/      (loaded on demand, one level deep from SKILL.md)
 ├── scripts/         (executed via shell; code never enters context)
@@ -30,7 +30,7 @@ Use this before writing a single line of SKILL.md. If any step is unclear, the s
 ## Five high-leverage rules
 
 1. **Description is the only thing the selector sees.** Body text never influences triggering. When a skill under-triggers, fix the description first.
-2. **Third-person voice for the capability, imperative for the trigger.** `"Extracts text from PDF files. Use this skill when the user has a PDF and wants its contents."` Never first person (`"I can help you..."`) and never addressed to the user (`"You can use this to..."`) — POV-inconsistent text breaks discovery, and the imperative is aimed at the agent, which is a different thing. The two upstream guides phrase this rule differently; [`skill-creator`](../Skills/skill-creator/SKILL.md) reconciles them.
+2. **Third-person voice for the capability, imperative for the trigger.** `"Extracts text from PDF files. Use this skill when the user has a PDF and wants its contents."` Never first person (`"I can help you..."`) and never addressed to the user (`"You can use this to..."`) — POV-inconsistent text breaks discovery, and the imperative is aimed at the agent, which is a different thing. The two upstream guides phrase this rule differently; [`skill-creator`](../skills/skill-creator/SKILL.md) reconciles them.
 3. **Point, don't dump.** SKILL.md is the standard operating procedure. Deep knowledge (XML schemas, API tables, long examples) belongs in `references/<topic>.md`. When the body crosses 500 lines, split.
 4. **References one level deep.** Claude often previews nested references with `head -100` and gets incomplete content. All references link directly from SKILL.md.
 5. **Pick a default.** Don't offer five libraries — pick one and mention alternatives only as documented escape hatches ("use X instead when Y").
@@ -92,7 +92,7 @@ Analogy: narrow bridge with cliffs → guardrails (low freedom); open field → 
 ## Anti-patterns
 
 - Vague description. ("Helps with documents." Names no category worth matching.)
-- **Overfitting to failed queries.** Pasting the verbatim wording of eval queries that did not trigger. The description then works on those exact strings and nothing near them. Generalise instead — name the category those queries represent, and keep the vocabulary that belongs to it. See the trigger-eval loop in [`skill-creator`](../Skills/skill-creator/SKILL.md).
+- **Overfitting to failed queries.** Pasting the verbatim wording of eval queries that did not trigger. The description then works on those exact strings and nothing near them. Generalise instead — name the category those queries represent, and keep the vocabulary that belongs to it. See the trigger-eval loop in [`skill-creator`](../skills/skill-creator/SKILL.md).
 - Body holds the trigger. (Body is invisible to the selector.)
 - Time-sensitive language in main content. (Use `<details><summary>Old patterns</summary>` blocks.)
 - Inconsistent terminology. (Pick one term and use it throughout.)
@@ -123,17 +123,53 @@ External sources, in order of authority:
 
 ## In-repo references
 
-- [`Skills/skill-creator/SKILL.md`](../Skills/skill-creator/SKILL.md) — full operating manual; load via prompt "create a skill", "audit a skill", etc.
+- [`skills/skill-creator/SKILL.md`](../skills/skill-creator/SKILL.md) — full operating manual; load via prompt "create a skill", "audit a skill", etc.
 - [`Instructions/copilot-authoring.instructions.md`](../com.github.copilot/rules/copilot-authoring.instructions.md) — schema and style rules for SKILL.md, agent, instruction, and prompt files. Auto-loaded when editing any of them.
-- [`Skills/sampler-framework/`](../Skills/sampler-framework/), [`Skills/automatedlab-deployment/`](../Skills/automatedlab-deployment/), [`Skills/datum-configuration/`](../Skills/datum-configuration/) — worked examples of the SKILL.md-as-navigation-map + `references/` pattern after Pass-B split (May 2026).
+- [`skills/sampler-framework/`](../skills/sampler-framework/), [`skills/automatedlab-deployment/`](../skills/automatedlab-deployment/), [`skills/datum-configuration/`](../skills/datum-configuration/) — worked examples of the SKILL.md-as-navigation-map + `references/` pattern after Pass-B split (May 2026).
 
-## When in doubt — skill, instruction, agent, or prompt?
+## Choose the smallest suitable implementation
 
-| Pick | When |
-|---|---|
-| **Skill** | Bounded workflow with concrete recipes. Loads on demand. Verifiable output. |
-| **Instruction** | Coding-style or formatting rule that must apply to every edit of matching files. Always loaded for matching paths. |
-| **Agent** | A persona with its own model, toolset, and multi-step methodology. The user explicitly switches into it. |
-| **Prompt** | A one-shot template the user invokes from the picker. |
+| Pick | When | Verification |
+|---|---|---|
+| Hook | An event must trigger a deterministic check independent of the model | Payload, timeout, exit-code, and bypass regression tests |
+| Instruction | A path-scoped coding convention needs model judgment | Frontmatter, scope checks, and representative behavior checks |
+| Skill | A reusable, on-demand workflow has a bounded outcome | Trigger and capability evals, including near-miss cases |
+| Custom agent | The work needs a distinct role or capability boundary | Tool and delegation contracts plus behavioral evals |
+| Prompt | A user-invoked VS Code entry point reuses an existing workflow | Frontmatter and invocation checks; no silent tool expansion |
+| PowerShell function or script | A local deterministic operation needs structured input and output | Pester, parsing, static analysis, and `-WhatIf` for writes |
+| MCP tool | A repeated cross-client integration needs a structured tool interface | Schema, authorization, failure, and integration tests |
 
-If two fit, prefer the lighter one. A skill is lighter than an agent; an instruction is lighter than a skill *only when the rule must always apply*.
+An Instruction is guidance, not deterministic enforcement. Keep unconditional
+checks in hooks or executable code. Prefer an existing module function over
+another service for a one-shot local action. Use a narrow direct API call within
+an existing workflow when a persistent MCP server adds no benefit; repository
+MCP server curation remains out of scope.
+
+Extend a suitable existing Customization before adding a new one. Preserve
+capability boundaries: a Skill cannot grant tools, and a Prompt must not
+silently widen its Custom agent's permissions. A new dependency needs an
+explicit operational benefit, not just a convenient example to copy.
+
+## Promote observed patterns deliberately
+
+Keep a candidate in the task's existing project-scoped Memory Bank record,
+separate from shipped Customizations. Capture one trigger and action, the
+observed outcome, an evidence locator, counterexamples, and its intended scope.
+Repeated observations are evidence; user silence is not approval, and an
+invented numerical confidence is not a measurement.
+
+Before promotion, reproduce the useful behavior, test a near-miss case, resolve
+contradictory evidence, and obtain acceptance of the wider scope. Route the
+accepted pattern through the table above and the existing `skill-creator` and
+`agent-evals` workflows. Private transcripts and unreviewed generated guidance
+do not enter the distributed catalogue. No observer daemon or automatic
+project-to-global promotion is needed.
+
+## Keep context changes deliberate
+
+Use the existing Session handoff and compaction checkpoint at a completed task
+boundary, preserving pending work, file paths, and validation evidence first.
+Do not compact in the middle of an unresolved implementation step just because
+a tool-call count crossed a threshold. Billing totals are not live context
+occupancy; use client-reported context telemetry when available, and otherwise
+report that the measurement is unavailable.
