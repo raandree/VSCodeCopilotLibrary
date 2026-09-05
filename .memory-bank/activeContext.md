@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-05
+last-verified: 2026-09-06
 owner: software-engineer
 source: current task evidence
 ---
@@ -30,6 +30,13 @@ No active profile was changed and nothing was pushed. Live cloud sync and
 non-Windows clients were not exercised; `review: on` is recommended before
 publishing the new removal API and deployment ownership boundary.
 
+The review ran and returned CONDITIONAL: no Critical or High, five Medium
+findings accepted as residual risk in `.memory-bank/assessment-log.md`.
+Documentation now names the two things an existing user must act on — moving a
+clone that sits inside the Canonical target, and reconciling a modified file
+before reinstalling. The cycle reached implementation, review, and
+documentation; no architecture stage ran.
+
 ## Previous focus: role-record migration
 
 Legacy role records use metadata-only planning, whole-plan validation, and
@@ -50,15 +57,6 @@ words the user's own glossary uses — that workspace says *proof*, the list sai
 "live test". And guidance that sits downstream of the step it constrains does not
 bind that step: arming the tick lived in a later section, so an agent could
 follow the launch step exactly and still end the turn with nothing armed.
-
-## Earlier: the runaway `cycle: full` chain
-
-Fifteen complete `software-engineer` ↔ `security-reviewer` round trips in one
-session, 30 MB against a ~600 KB norm. Both handoff legs auto-submitted and the
-only bound was prose — a cap neither side could count, because a handoff starts
-the receiving agent with fresh context. Any ring of `send: true` handoffs is
-unbounded by construction, so *Fix Issues Found* now sets `send: false` and
-`tests/DevelopmentCycle.Tests.ps1` walks the whole graph and fails on one.
 
 ## Agent Plugins 1.0 status
 
@@ -101,6 +99,14 @@ run needs an explicit go-ahead rather than an assumption.
 
 ## Open findings
 
+- **Medium, accepted for this cycle:** the deployment-lifecycle review returned
+  CONDITIONAL. A modified hook script reports only a Warning, so `-Quiet` stays
+  true; a drifted owned file blocks its own reinstall with no restore switch;
+  apply is not transactional across settings, files, and the record; the planner
+  does not enforce the record reader's segment rules, so a POSIX-legal name can
+  make the record unreadable; and the new ownership vocabulary has no
+  `glossary.md` rows. Address the first two before publishing the removal and
+  diagnostics API. Evidence in `.memory-bank/assessment-log.md`.
 - **High:** `software-engineer-contoso` claims no egress while retaining an
   unrestricted terminal and mandating a generic `security-reviewer` delegate
   that can read the repository and use web, GitHub, MCP, and terminal tools.

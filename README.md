@@ -405,7 +405,9 @@ When OneDrive is present the canonical target lives inside it, so a second machi
 [`Setup-CopilotSettings.ps1`](Setup-CopilotSettings.ps1) dot-sources the module commands from `source/` and runs `Install-CopilotAtelier` against the clone, so the working tree is deployed without building or installing the module first.
 
 Keep the clone outside the Canonical target. Overlapping source and deployment
-trees are rejected before writing, including during `-WhatIf`.
+trees are rejected before writing, including during `-WhatIf`. Move an existing
+clone that sits at `~/OneDrive/CopilotAtelier/` — for example to
+`~/OneDrive/CopilotAtelier-src/` — before installing.
 
 3. Restart VS Code.
 

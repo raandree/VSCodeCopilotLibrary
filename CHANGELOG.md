@@ -83,9 +83,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The duration formatter shipped with a bug the tests caught: `[int]1.5` *rounds* in PowerShell, so a 90-minute chat reported `2h 30m`. It floors explicitly now, and [`tests/Hooks.Tests.ps1`](tests/Hooks.Tests.ps1) pins five durations that sit where rounding and truncation disagree, alongside the injected reader path, the single-line output contract, the turn-in-progress arithmetic, the workspace preference, the shadowing regression, the clock-root containment, the read-only guarantee, the turn counter, the `stop_hook_active` continuation case, a corrupt clock, an unreadable payload, the absent `decision` field, and a `session_id` of `../../pwned`.
 
+### Changed
+
+- Reject a source tree that overlaps the Canonical target. A clone kept at `~/OneDrive/CopilotAtelier/`, the location earlier documentation suggested, now fails before any write; move it aside — for example to `~/OneDrive/CopilotAtelier-src/` — and reinstall. See [repository clone](README.md#2-repository-clone).
+
 ### Fixed
 
-- Preserve user-added files and legacy trees during reinstall; reject locally modified files, reparse-point paths, and intervening changes instead of rebuilding deployment directories destructively.
+- Preserve user-added files and legacy trees during reinstall; reject locally modified files, reparse-point paths, and intervening changes instead of rebuilding deployment directories destructively. Reconcile a modified file by restoring or moving it before reinstalling; `-Force` does not overwrite it.
 - Quote the usage Prompt argument hint so its colon parses as YAML; validate every Prompt with a full YAML parser in the configuration security gate.
 - Pin Pester 5.7.1 and reject unsupported major versions in QA. Bound filesystem references in saved test reports to paths and labels so result export does not traverse live provider and assembly metadata; retain all test counts, failures, and coverage.
 

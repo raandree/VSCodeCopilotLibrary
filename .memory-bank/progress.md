@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-05
+last-verified: 2026-09-06
 owner: software-engineer
 source: CHANGELOG.md and git history
 ---
@@ -20,8 +20,11 @@ is tracked under `[Unreleased]` in `CHANGELOG.md`.
   Added ownership, path, concurrency, serialization, and security regressions;
   repaired usage Prompt YAML and pinned Pester 5.7.1. Build/test: 1,137 passed,
   60 existing skips, 83.63% coverage; Windows PowerShell 5.1: 264 passed, one
-  platform skip. Changes remain on a local topic branch; no active profile or
-  remote was changed. One pre-existing simulated-backend warning remains.
+  platform skip. Independent security review returned CONDITIONAL: no Critical
+  or High, five Medium findings accepted as residual risk and recorded in
+  `.memory-bank/assessment-log.md`. Commits `8353cef` and `efb8378` remain on a
+  local topic branch; no active profile or remote was changed. One pre-existing
+  simulated-backend warning remains.
 
 - **2026-09-04**: Reconciled the job-monitor change with `main` at `e23eb7e`.
   Execution-safety now loads the Skill at command launch, including
