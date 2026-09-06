@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-07-29
+last-verified: 2026-09-06
 owner: shared
 source: project domain decisions
 ---
@@ -33,7 +33,9 @@ API fields, and quoted historical text retain their exact spelling.
 | Discovery link | A path under `~/.copilot/` that exposes a Canonical target subdirectory to Copilot clients. | Copilot shortcut, discovery redirect folder |
 | Setup script | `Setup-CopilotSettings.ps1`, the clone entry point that installs the Customizations from a working tree. | Copilot installer, setup bootstrapper |
 | Customization module | The `CopilotAtelier` PowerShell module published to the PowerShell Gallery, which carries the Customizations and the install commands. | Copilot package, atelier package |
-| Deployment record | `.copilotatelier.json` in the Canonical target, which states the deployed version and when it was written. | install marker, version stamp file |
+| Deployment record | `.copilotatelier.json` in the Canonical target, which records the deployed version, Owned-file paths and expected SHA-256 values, and any incomplete apply state. | install marker, version stamp file, ownership record |
+| Owned file | A file listed in the Deployment record with its expected SHA-256; matching bytes alone never establish ownership. | |
+| Deployment plan | The validated set of copy and remove actions computed before writes. | |
 | Pre-flight | The mandatory discovery phase before the first tool call or substantive answer. | optional precheck, warm-up phase |
 | Post-flight | The mandatory classification and closure phase before the final answer. | optional cleanup, wrap-up phase |
 | Substantive turn | A turn that changes a file, records a durable decision or event, discovers a defect, or creates a tag. | write-required turn, impacting interaction |

@@ -40,7 +40,17 @@ function Assert-CopilotAtelierRegularPath
             $attributes = [System.IO.File]::GetAttributes($currentPath)
             if ($attributes.HasFlag([System.IO.FileAttributes]::ReparsePoint))
             {
-                throw "Refusing reparse point in deployment path '$currentPath'."
+                $isCloudPlaceholder = $false
+                if ([System.Environment]::OSVersion.Platform -eq [System.PlatformID]::Win32NT)
+                {
+                    $reparseTag = Get-CopilotAtelierReparseTag -LiteralPath $currentPath -ErrorAction Stop
+                    $isCloudPlaceholder = $reparseTag -is [System.UInt32] -and
+                        ($reparseTag -band [System.Convert]::ToUInt32('FFFF0FFF', 16)) -eq [System.Convert]::ToUInt32('9000001A', 16)
+                }
+                if (-not $isCloudPlaceholder)
+                {
+                    throw "Refusing reparse point in deployment path '$currentPath'."
+                }
             }
             if ($currentPath -ne $leafPath -and -not $attributes.HasFlag([System.IO.FileAttributes]::Directory))
             {

@@ -15,13 +15,23 @@ is tracked under `[Unreleased]` in `CHANGELOG.md`.
 
 ## Recent milestones
 
+- **2026-09-06**: Implemented M1-M5/L1-L6 deployment-review remediation with
+  per-ID red/green evidence in `assessment-log.md`. Repair remains explicit;
+  untracked content and abandoned staging are preserved. Native recovery and
+  real child-process contention pass. Full gate: 1,234 passed, zero failures,
+  66 skips, 87.8% coverage; zero build errors. 5.1: 473 passed/nine skips plus
+  six final serialization checks. Pinned reference validation: 47 passed/two
+  divergence skips. Independent review: Approve, zero Blocker/Major; two Minor
+  and three Nit observations recorded. Changes remain uncommitted. The prior
+  "accepted residual risk" description was not user acceptance and is superseded.
+
 - **2026-09-05**: Implemented hash-aware deployment and conservative removal,
   read-only diagnostics, bounded SessionStart context, and configuration gates.
   Added ownership, path, concurrency, serialization, and security regressions;
   repaired usage Prompt YAML and pinned Pester 5.7.1. Build/test: 1,137 passed,
   60 existing skips, 83.63% coverage; Windows PowerShell 5.1: 264 passed, one
   platform skip. Independent security review returned CONDITIONAL: no Critical
-  or High, five Medium findings accepted as residual risk and recorded in
+  or High, with unresolved findings recorded in
   `.memory-bank/assessment-log.md`. Commits `8353cef` and `efb8378` remain on a
   local topic branch; no active profile or remote was changed. One pre-existing
   simulated-backend warning remains.
@@ -83,18 +93,8 @@ is tracked under `[Unreleased]` in `CHANGELOG.md`.
   was outside every gate.
 
 - **2026-09-02**: Added a session clock so Post-flight closes with the chat's
-  measured elapsed duration. A model has no clock, so the number is written to
-  disk by `Add-SessionContext.ps1` at
-  `<LocalApplicationData>/CopilotAtelier/sessions/session-<key>.json` and read
-  back by `Get-SessionElapsed.ps1`, which the agent runs last and copies
-  verbatim. The first attempt printed it from the `Stop` hook and was rejected
-  on sight: VS Code renders a hook `systemMessage` as a detached, collapsed
-  warning box, so the line was beside the checklist, not in it. A hook cannot
-  write inside the reply and a model cannot read a clock, so the split is
-  forced. `Write-SessionClose.ps1` keeps the turn counter and now speaks only
-  when the clock is unreadable. `UserPromptSubmit` was ruled out — common output
-  format only, no `additionalContext` — and `PreToolUse` was rejected as a token
-  cost on every call. Decision record 0024, revised the same day.
+  measured duration rather than an estimate. Decision 0024 and the changelog
+  retain the hook design, rejected alternatives, and verification evidence.
 
 - **2026-09-01**: Fixed job-monitor discovery and same-turn heartbeat arming,
   and bounded the development-cycle handoff graph by making the reviewer's

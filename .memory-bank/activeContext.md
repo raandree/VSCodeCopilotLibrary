@@ -9,33 +9,40 @@ source: current task evidence
 
 ## Current focus
 
-Native deployment safety and diagnostics are implemented on
-`ai/deployment-safety-and-diagnostics`. Installation records owned file hashes,
-preserves untracked content, refuses conflicts and overlapping source trees,
-and rechecks writes. Matching bytes alone never confer ownership. Diagnostics
-are read-only; uninstall removes only unchanged owned files and preserves
-personal content and configuration. Root-scoped guards support parent aliases.
+Completed implementation and focused independent re-review for M1-M5 and L1-L6 on
+`ai/deployment-safety-and-diagnostics`, starting at clean `abf8970`. Leave all
+changes uncommitted. The user requested implementation and a focused independent
+re-review, not publication or the separate agent-permission/CLI backlog.
 
-SessionStart context is bounded without a hook-off switch. The configuration
-gate checks tools, delegation, Prompt overrides, and hook limits, with twelve
-named unrestricted-MCP exceptions. Usage Prompt YAML is repaired. Relative
-source paths resolve through PowerShell before filesystem planning.
+All eleven findings have implementations and focused regressions. Hook scripts
+and commands are checked against the loaded module; repair remains recorded-file
+only; recoverable pending operations require verified staging before completion
+can be inferred. Concurrent matching untracked files are not adopted. Filename
+identity and segment validation are shared. Destinations, legacy diagnostics,
+type-data restoration, strict hook JSON, and static Prompt policy are covered.
+The Glossary defines Owned file and Deployment plan.
 
-Build and full test gates pass: 1,137 passed, 60 existing skips, 83.63% coverage
-against 65%. Windows PowerShell 5.1: 264 passed, one platform skip. Parsing,
-PSScriptAnalyzer, Markdown lint/rendering, and diff checks are clean. Pester is
-pinned to 5.7.1; result export retains paths and labels instead of traversing
-live provider metadata. One pre-existing simulated-backend warning remains.
-No active profile was changed and nothing was pushed. Live cloud sync and
-non-Windows clients were not exercised; `review: on` is recommended before
-publishing the new removal API and deployment ownership boundary.
+Full detached build/test: 1,234 passed, zero failures, 66 explained skips,
+87.8% coverage; 20 tasks, zero errors, one existing simulated-backend warning.
+Windows PowerShell 5.1: 473 passed/nine skips, plus the final six serialization
+checks passed after the fixture-only adjustment. All 22 changed scripts pass
+native AST and PSScriptAnalyzer. Pinned uv 0.8.15 executed 47 reference checks;
+only two documented divergence skips remain. Earlier serialization defects
+found by the full gate have regression guards; expected child failures no
+longer contaminate parent build accounting.
 
-The review ran and returned CONDITIONAL: no Critical or High, five Medium
-findings accepted as residual risk in `.memory-bank/assessment-log.md`.
-Documentation now names the two things an existing user must act on — moving a
-clone that sits inside the Canonical target, and reconciling a modified file
-before reinstalling. The cycle reached implementation, review, and
-documentation; no architecture stage ran.
+Independent security-reviewer decision: Approve, zero Blocker/Major, two Minor
+and three Nit observations retained in `assessment-log.md`. The filename
+probe's fail-closed prerequisite is documented. Non-Windows and live OneDrive
+remain unverified: no WSL distribution, Docker, or Podman is installed, and no
+authorized sync test account is available. Model-backed evaluations remain
+unrun without a supported runner and spending permission.
+
+The earlier CONDITIONAL review did not close the findings. Prior wording that
+called them accepted residual risk was not user acceptance and is superseded.
+Historical runs (1,137 passed/60 skips/83.63% and 264 passed/1 skip on 5.1)
+remain historical evidence, not validation of these edits. The per-ID ledger
+and log names are in `assessment-log.md`.
 
 ## Previous focus: role-record migration
 
@@ -99,14 +106,9 @@ run needs an explicit go-ahead rather than an assumption.
 
 ## Open findings
 
-- **Medium, accepted for this cycle:** the deployment-lifecycle review returned
-  CONDITIONAL. A modified hook script reports only a Warning, so `-Quiet` stays
-  true; a drifted owned file blocks its own reinstall with no restore switch;
-  apply is not transactional across settings, files, and the record; the planner
-  does not enforce the record reader's segment rules, so a POSIX-legal name can
-  make the record unreadable; and the new ownership vocabulary has no
-  `glossary.md` rows. Address the first two before publishing the removal and
-  diagnostics API. Evidence in `.memory-bank/assessment-log.md`.
+- **Deployment review:** M1-M5 and L1-L6 are implemented and independently
+  approved on the verified scope. Non-Windows/cloud-sync execution and the
+  review's non-blocking observations remain explicitly disclosed, not waived.
 - **High:** `software-engineer-contoso` claims no egress while retaining an
   unrestricted terminal and mandating a generic `security-reviewer` delegate
   that can read the repository and use web, GitHub, MCP, and terminal tools.
@@ -170,7 +172,6 @@ run needs an explicit go-ahead rather than an assumption.
 
 ## Next step
 
-The job-monitor changes remain staged on the updated `main`. When a behavioral
-runner is available, execute the authored migration cases before claiming
-pass@k or pass^k. The oversized Custom agent refactor remains in its separate
-Session handoff.
+Await the user's review of the uncommitted remediation. No commit, merge,
+publication, push, or broader-backlog work is authorized. Non-Windows and live
+OneDrive verification need isolated environments before they can be claimed.

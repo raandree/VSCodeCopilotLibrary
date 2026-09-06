@@ -91,13 +91,28 @@ BeforeAll {
                 }
             }
         }
-        elseif ($Configuration.Contains('tools') -and $Configuration.agent -and $Agents.Contains($Configuration.agent))
+        elseif ($Kind -eq 'Prompt')
         {
-            foreach ($tool in $Configuration.tools)
+            $target = $Configuration.agent
+            if (-not $target -or $target -in @('agent', 'ask', 'plan', 'edit'))
             {
-                if ($tool -notin $Agents[$Configuration.agent].tools)
+                if ($Configuration.Contains('tools') -and @($Configuration.tools).Count -gt 0)
                 {
-                    $findings.Add('PromptToolExpansion')
+                    $findings.Add('UnverifiablePromptToolBoundary')
+                }
+            }
+            elseif ($target -isnot [string] -or -not $Agents.Contains($target))
+            {
+                $findings.Add('UnknownPromptAgent')
+            }
+            elseif ($Configuration.Contains('tools'))
+            {
+                foreach ($tool in $Configuration.tools)
+                {
+                    if ($tool -notin $Agents[$target].tools)
+                    {
+                        $findings.Add('PromptToolExpansion')
+                    }
                 }
             }
         }
@@ -113,6 +128,41 @@ BeforeAll {
         ConvertFrom-Yaml -Yaml $match.Groups[1].Value -ErrorAction Stop
     }
 
+    function Get-SecurityHookConfiguration
+    {
+        param([string] $Path)
+        $configuration = Get-Content -LiteralPath $Path -Raw -Encoding UTF8 | ConvertFrom-Json -ErrorAction Stop
+        if ($configuration -isnot [pscustomobject] -or $configuration.hooks -isnot [pscustomobject])
+        {
+            throw 'Hook JSON must contain a hooks object.'
+        }
+        $hooks = @{}
+        foreach ($hookEvent in $configuration.hooks.PSObject.Properties)
+        {
+            if ($hookEvent.Value -isnot [array]) { throw 'Hook events must contain arrays.' }
+            $hooks[$hookEvent.Name] = @(foreach ($hook in $hookEvent.Value)
+            {
+                if ($hook -isnot [pscustomobject]) { throw 'Hook commands must be objects.' }
+                $command = @{}
+                foreach ($property in $hook.PSObject.Properties)
+                {
+                    $command[$property.Name] = $property.Value
+                }
+                if ($command.env -is [pscustomobject])
+                {
+                    $environment = @{}
+                    foreach ($property in $command.env.PSObject.Properties)
+                    {
+                        $environment[$property.Name] = $property.Value
+                    }
+                    $command.env = $environment
+                }
+                $command
+            })
+        }
+        return $hooks
+    }
+
     $script:agents = @{}
     foreach ($file in Get-ChildItem -LiteralPath (Join-Path $script:repoRoot 'com.github.copilot/agents') -Filter '*.agent.md' -File)
     {
@@ -122,6 +172,70 @@ BeforeAll {
 }
 
 Describe 'Customization security gate discrimination' -Tag 'Unit' {
+    It 'rejects a nonempty tool override for the <Target> Prompt target' -ForEach @(
+        @{ Target = 'agent' }
+        @{ Target = 'ask' }
+        @{ Target = 'plan' }
+        @{ Target = 'edit' }
+        @{ Target = 'implicit' }
+    ) {
+        $configuration = @{ tools = @('execute/runInTerminal') }
+        if ($Target -ne 'implicit') { $configuration.agent = $Target }
+
+        @(Get-CustomizationSecurityFinding -Kind Prompt -Configuration $configuration) |
+            Should -Contain 'UnverifiablePromptToolBoundary'
+    }
+
+    It 'accepts inherited or explicitly empty tools for the <Target> Prompt target without asserting a runtime boundary' -ForEach @(
+        @{ Target = 'agent' }
+        @{ Target = 'ask' }
+        @{ Target = 'plan' }
+        @{ Target = 'edit' }
+        @{ Target = 'implicit' }
+    ) {
+        $configuration = @{}
+        if ($Target -ne 'implicit') { $configuration.agent = $Target }
+        @(Get-CustomizationSecurityFinding -Kind Prompt -Configuration $configuration) | Should -HaveCount 0
+        $configuration.tools = @()
+        @(Get-CustomizationSecurityFinding -Kind Prompt -Configuration $configuration) | Should -HaveCount 0
+    }
+
+    It 'rejects an unknown named Prompt target' {
+        @(Get-CustomizationSecurityFinding -Kind Prompt -Configuration @{ agent = 'missing-agent'; tools = @('read/readFile') }) |
+            Should -Contain 'UnknownPromptAgent'
+    }
+
+    It 'rejects invalid hook JSON root or event shape <Text>' -ForEach @(
+        @{ Text = 'null' }
+        @{ Text = '[]' }
+        @{ Text = '{"hooks":[]}' }
+        @{ Text = '{"hooks":{"Stop":{}}}' }
+    ) {
+        $fixturePath = Join-Path $TestDrive 'invalid-shape-hooks.json'
+        $Text | Set-Content -LiteralPath $fixturePath
+        { Get-SecurityHookConfiguration -Path $fixturePath } | Should -Throw
+    }
+
+    It 'rejects YAML-only hook files that are not JSON' {
+        $fixturePath = Join-Path $TestDrive 'yaml-only-hooks.json'
+        @('hooks:', '  PreToolUse:', '    - type: command', '      timeout: 20', '      command: pwsh -File hook.ps1', '      windows: powershell -File hook.ps1') |
+            Set-Content -LiteralPath $fixturePath
+
+        { Get-SecurityHookConfiguration -Path $fixturePath } | Should -Throw
+    }
+
+    It 'preserves hook JSON types and rejects preauthorized remote mutation' {
+        $fixturePath = Join-Path $TestDrive 'valid-hooks.json'
+        '{"hooks":{"PreToolUse":[{"type":"command","timeout":20,"command":"pwsh -File hook.ps1","windows":"powershell -File hook.ps1","env":{"COPILOT_ATELIER_ALLOW_REMOTE":"1"}}]}}' |
+            Set-Content -LiteralPath $fixturePath
+
+        $configuration = Get-SecurityHookConfiguration -Path $fixturePath
+
+        @($configuration.PreToolUse).Count | Should -Be 1
+        $configuration.PreToolUse[0].timeout | Should -Be 20
+        @(Get-CustomizationSecurityFinding -Kind Hook -Configuration $configuration.PreToolUse[0]) | Should -Contain 'PreauthorizedRemoteMutation'
+    }
+
     It 'rejects <Code> in <Kind> configuration' -ForEach @(
         @{ Kind = 'Agent'; Code = 'MissingTools'; Configuration = @{ agents = @() } }
         @{ Kind = 'Agent'; Code = 'InvalidTools'; Configuration = @{ tools = 'read/readFile'; agents = @() } }
@@ -175,7 +289,7 @@ Describe 'Shipped Customization security configuration' -Tag 'Unit' {
         }
     }
 
-    It 'does not let a Prompt expand its Custom agent tool permissions' {
+    It 'checks static Prompt tool bounds for named, built-in, and implicit targets' {
         foreach ($file in Get-ChildItem -LiteralPath (Join-Path $script:repoRoot 'com.github.copilot/commands') -Filter '*.prompt.md' -File)
         {
             $configuration = Get-SecurityFrontmatter -Path $file.FullName
@@ -186,17 +300,17 @@ Describe 'Shipped Customization security configuration' -Tag 'Unit' {
 
     It 'bounds every shared and agent-scoped hook without preauthorizing remote mutation' {
         $configurations = @(
-            (Get-Content -LiteralPath (Join-Path $script:repoRoot 'com.github.copilot/hooks/hooks.json') -Raw -Encoding UTF8 | ConvertFrom-Yaml).hooks
+            Get-SecurityHookConfiguration -Path (Join-Path $script:repoRoot 'com.github.copilot/hooks/hooks.json')
             $script:agents.Values | Where-Object { $_.Contains('hooks') } | ForEach-Object { $_.hooks }
         )
         foreach ($configuration in $configurations)
         {
-            foreach ($event in $configuration.GetEnumerator())
+            foreach ($hookEvent in $configuration.GetEnumerator())
             {
-                foreach ($hook in $event.Value)
+                foreach ($hook in $hookEvent.Value)
                 {
                     @(Get-CustomizationSecurityFinding -Kind Hook -Configuration $hook) |
-                        Should -HaveCount 0 -Because $event.Key
+                        Should -HaveCount 0 -Because $hookEvent.Key
                 }
             }
         }

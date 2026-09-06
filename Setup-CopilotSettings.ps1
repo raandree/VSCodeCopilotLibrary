@@ -11,6 +11,15 @@
         Installed from the PowerShell Gallery, use Install-CopilotAtelier and
         Update-CopilotAtelier instead.
 
+    .PARAMETER TargetPath
+        Explicit Canonical target. Bypasses ambiguous OneDrive account selection
+        without prompting. Passed through to Install-CopilotAtelier.
+
+    .PARAMETER Repair
+        Replaces modified Owned files still present in this clone's payload.
+        Their modified content is not backed up. Does not overwrite untracked
+        files. Passed through to Install-CopilotAtelier; preview with WhatIf.
+
     .PARAMETER SkipCopilotCliEnvironment
         Skips the user-scoped COPILOT_ALLOW_ALL configuration. Intended for
         sandboxed tests that must not mutate the host user profile.
@@ -37,9 +46,16 @@
         https://github.com/raandree/CopilotAtelier
 #>
 
-[CmdletBinding()]
+[CmdletBinding(SupportsShouldProcess = $true, ConfirmImpact = 'Medium')]
 param
 (
+    [Parameter()]
+    [ValidateNotNullOrEmpty()]
+    [string]$TargetPath,
+
+    [Parameter()]
+    [switch]$Repair,
+
     [Parameter()]
     [switch]$SkipCopilotCliEnvironment,
 
@@ -75,4 +91,6 @@ if (-not $installParameter.ContainsKey('InformationAction')) {
     $installParameter['InformationAction'] = 'Continue'
 }
 
-Install-CopilotAtelier @installParameter
+if ($PSCmdlet.ShouldProcess($PSScriptRoot, 'Deploy clone Customizations and configure the client')) {
+    Install-CopilotAtelier @installParameter
+}

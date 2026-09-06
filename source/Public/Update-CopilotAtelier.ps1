@@ -18,8 +18,20 @@ function Update-CopilotAtelier
         .PARAMETER Repository
             The PowerShell repository to check. Defaults to PSGallery.
 
+        .PARAMETER TargetPath
+            Explicit Canonical target passed to installation. Ambiguous OneDrive
+            selection fails before querying the repository and never prompts.
+            Not used with SkipDeployment.
+
         .PARAMETER Force
             Redeploys even when the installed version is already the newest one.
+
+        .PARAMETER Repair
+            Redeploys even without a newer version and passes Repair to
+            Install-CopilotAtelier. Modified Owned files still in the payload
+            are replaced without backup; untracked files are never overwritten.
+            Cannot be combined with SkipDeployment. This command still queries
+            the repository; use Install-CopilotAtelier -Repair for offline repair.
 
         .PARAMETER SkipDeployment
             Installs the newer module version but does not deploy it. Use it to
@@ -42,6 +54,11 @@ function Update-CopilotAtelier
 
             Redeploys the current version even when no newer version exists.
 
+        .EXAMPLE
+            Update-CopilotAtelier -TargetPath ~/CopilotAtelier -Repair -WhatIf
+
+            Previews an update and repair at an explicitly selected destination.
+
         .LINK
             https://github.com/raandree/CopilotAtelier
     #>
@@ -55,8 +72,17 @@ function Update-CopilotAtelier
         $Repository = 'PSGallery',
 
         [Parameter()]
+        [ValidateNotNullOrEmpty()]
+        [System.String]
+        $TargetPath,
+
+        [Parameter()]
         [System.Management.Automation.SwitchParameter]
         $Force,
+
+        [Parameter()]
+        [System.Management.Automation.SwitchParameter]
+        $Repair,
 
         [Parameter()]
         [System.Management.Automation.SwitchParameter]
@@ -69,6 +95,10 @@ function Update-CopilotAtelier
 
     $ErrorActionPreference = 'Stop'
 
+    if ($Repair -and $SkipDeployment)
+    {
+        throw '-Repair cannot be combined with -SkipDeployment.'
+    }
     $module = $ExecutionContext.SessionState.Module
 
     if (-not $module)
@@ -77,6 +107,17 @@ function Update-CopilotAtelier
     }
 
     $installedVersion = $module.Version
+
+    $deploymentTarget = $null
+    if (-not $SkipDeployment)
+    {
+        $pathParameters = @{ NonInteractive = $true }
+        if ($PSBoundParameters.ContainsKey('TargetPath'))
+        {
+            $pathParameters.TargetPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($TargetPath)
+        }
+        $deploymentTarget = (Get-CopilotAtelierPath @pathParameters).TargetPath
+    }
 
     try
     {
@@ -123,7 +164,7 @@ function Update-CopilotAtelier
     {
         Write-Information -MessageData 'Skipped deployment as requested. Run Install-CopilotAtelier to deploy.'
     }
-    elseif ($updated -or $Force)
+    elseif ($updated -or $Force -or $Repair)
     {
         $targetVersion = $installedVersion
 
@@ -136,6 +177,13 @@ function Update-CopilotAtelier
 
         $installParameter = @{
             IncludeClaudeCodeLinks = $IncludeClaudeCodeLinks
+            TargetPath = $deploymentTarget
+            Repair = $Repair
+            WhatIf = $WhatIfPreference
+        }
+        if ($PSBoundParameters.ContainsKey('Confirm'))
+        {
+            $installParameter.Confirm = $PSBoundParameters.Confirm
         }
 
         $deployment = & $updatedModule {

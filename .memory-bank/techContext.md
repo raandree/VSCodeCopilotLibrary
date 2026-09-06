@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-05
+last-verified: 2026-09-06
 owner: software-engineer
 source: build.yaml and source/
 ---
@@ -67,8 +67,12 @@ target:
 The repository-local `.memory-bank/`, `tests/`, `Reference/`, the build system,
 `plugin.json`, and documentation are not copied. `Keybindings/keybindings.json`
 is merged into the VS Code user profile. `.copilotatelier.json` records the
-version and schema-1 owned relative paths with SHA-256. Matching untracked files
-remain unowned; legacy records cannot authorize removal.
+version and schema-1 Owned-file paths with SHA-256. During apply it also records
+pending operations and verified staging state; completed records remain schema
+1. Matching untracked files remain unowned; legacy records cannot authorize
+removal. Explicit Repair affects recorded files only. Install and Update accept
+TargetPath and reject ambiguous account selection without prompting. Local
+install/removal callers on one target coordinate with an exclusive handle.
 
 ## Discovery model
 
@@ -147,9 +151,10 @@ mutate a remote without an explicit current-turn request.
   `SkillFrontmatter.Tests.ps1` enforces a non-growing over-budget body baseline.
 - PowerShell changes require AST parsing, focused Pester, and PSScriptAnalyzer
   where available.
-- Pester is pinned to 5.7.1. `Initialize_TestResultSerialization` runs before
-  tests and serializes file, drive, and provider references as paths or labels;
-  raw provider metadata can stall `Export-Clixml` on both Windows hosts.
+- Pester is pinned to 5.7.1. `Initialize_TestResultSerialization` serializes
+  file, drive, and provider references as paths or labels, then restores the
+  caller's type data through build-exit cleanup, including failures. Raw
+  provider metadata can stall `Export-Clixml` on both Windows hosts.
 - Markdown Customizations require frontmatter checks and clean editor or
   markdownlint diagnostics.
 

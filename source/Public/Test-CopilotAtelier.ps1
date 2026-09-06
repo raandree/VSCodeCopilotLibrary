@@ -7,9 +7,16 @@ function Test-CopilotAtelier
         .DESCRIPTION
             Checks the Deployment record, file hashes, loaded version, Discovery
             links, required hook scripts, and VS Code settings. Reports legacy
-            trees and duplicate skill Discovery links as warnings. The result
+            trees, including distinct capitalized directories on case-sensitive
+            targets, and duplicate skill Discovery links as warnings. The result
             contains structured Checks with Code, Severity, Path, and Message.
             IsHealthy means no Error was found; warnings still need review.
+
+            Modified hook scripts and hook configuration are errors. Hook
+            commands must match their event definitions in the loaded module,
+            including platform overrides. Required hook scripts must also match
+            the loaded module, even when untracked. This does not confer file
+            ownership. Other modified files are warnings.
 
             This is a local consistency check, not proof of client-side Discovery
             or a security sandbox. It never downloads, repairs, executes hook
@@ -75,6 +82,10 @@ function Test-CopilotAtelier
         }
         else
         {
+            if ($record.Applying)
+            {
+                $checks.Add([pscustomobject]@{ Code = 'IncompleteDeployment'; Severity = 'Error'; Path = $path.DeploymentManifestPath; Message = 'An apply was interrupted. Retry Install-CopilotAtelier with the intended payload to complete recovery.' })
+            }
             foreach ($file in $record.Files)
             {
                 $filePath = Join-Path -Path $path.TargetPath -ChildPath $file.Path
@@ -84,7 +95,13 @@ function Test-CopilotAtelier
                 }
                 elseif ((Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash -ne $file.Sha256)
                 {
-                    $checks.Add([pscustomobject]@{ Code = 'ModifiedFile'; Severity = 'Warning'; Path = $filePath; Message = 'An owned file differs from the Deployment record. Reconcile it before updating.' })
+                    $isHookFile = $file.Path -eq 'hooks/hooks.json' -or $file.Path -like 'hooks/scripts/*.ps1'
+                    $checks.Add([pscustomobject]@{
+                        Code = if ($isHookFile) { 'ModifiedHookFile' } else { 'ModifiedFile' }
+                        Severity = if ($isHookFile) { 'Error' } else { 'Warning' }
+                        Path = $filePath
+                        Message = 'An Owned file differs from the Deployment record. Reconcile it before updating.'
+                    })
                 }
             }
             $checks.Add([pscustomobject]@{ Code = 'DeploymentRecord'; Severity = 'Information'; Path = $path.DeploymentManifestPath; Message = "Validated $(@($record.Files).Count) owned file entries." })
@@ -136,6 +153,26 @@ function Test-CopilotAtelier
         {
             $checks.Add([pscustomobject]@{ Code = 'MissingHookScript'; Severity = 'Error'; Path = $scriptPath; Message = "Required hook script '$scriptName.ps1' is missing." })
         }
+        else
+        {
+            try
+            {
+                Assert-CopilotAtelierRegularPath -LiteralPath $scriptPath -RootPath $path.TargetPath
+                $contentRoot = Get-CopilotAtelierContentPath
+                $expectedScriptPath = Join-Path -Path $contentRoot -ChildPath "com.github.copilot/hooks/scripts/$scriptName.ps1"
+                Assert-CopilotAtelierRegularPath -LiteralPath $expectedScriptPath -RootPath $contentRoot
+                if ((Get-FileHash -LiteralPath $scriptPath -Algorithm SHA256).Hash -ne
+                    (Get-FileHash -LiteralPath $expectedScriptPath -Algorithm SHA256).Hash -and
+                    @($checks | Where-Object { $_.Code -eq 'ModifiedHookFile' -and $_.Path -eq $scriptPath }).Count -eq 0)
+                {
+                    $checks.Add([pscustomobject]@{ Code = 'ModifiedHookFile'; Severity = 'Error'; Path = $scriptPath; Message = 'A required hook script differs from the loaded module. This check does not establish file ownership.' })
+                }
+            }
+            catch
+            {
+                $checks.Add([pscustomobject]@{ Code = 'UnverifiedHookScript'; Severity = 'Error'; Path = $scriptPath; Message = $_.Exception.Message })
+            }
+        }
     }
 
     $hookPath = Join-Path -Path $path.TargetPath -ChildPath 'hooks/hooks.json'
@@ -143,11 +180,34 @@ function Test-CopilotAtelier
     {
         Assert-CopilotAtelierRegularPath -LiteralPath $hookPath -RootPath $path.TargetPath
         $hookConfiguration = Get-Content -LiteralPath $hookPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $expectedHookPath = Join-Path -Path (Get-CopilotAtelierContentPath) -ChildPath 'com.github.copilot/hooks/hooks.json'
+        $expectedHookConfiguration = Get-Content -LiteralPath $expectedHookPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        if (@($hookConfiguration.hooks.PSObject.Properties).Count -ne @($expectedHookConfiguration.hooks.PSObject.Properties).Count)
+        {
+            throw 'Hook events differ from the loaded module.'
+        }
         foreach ($eventName in @('PreToolUse', 'SessionStart', 'Stop', 'PreCompact'))
         {
-            if (-not $hookConfiguration.hooks.$eventName)
+            $actualHooks = @($hookConfiguration.hooks.$eventName)
+            $expectedHooks = @($expectedHookConfiguration.hooks.$eventName)
+            if ($actualHooks.Count -ne 1 -or $expectedHooks.Count -ne 1 -or $null -eq $actualHooks[0])
             {
-                throw "Missing hook event '$eventName'."
+                throw "Expected one command for hook event '$eventName'."
+            }
+            $actualHook = $actualHooks[0]
+            $expectedHook = $expectedHooks[0]
+            if (@($actualHook.PSObject.Properties).Count -ne @($expectedHook.PSObject.Properties).Count)
+            {
+                throw "Hook event '$eventName' has unexpected command properties."
+            }
+            foreach ($property in $expectedHook.PSObject.Properties)
+            {
+                $actualValue = $actualHook.($property.Name) | ConvertTo-Json -Depth 10 -Compress
+                $expectedValue = $property.Value | ConvertTo-Json -Depth 10 -Compress
+                if ($actualValue -cne $expectedValue)
+                {
+                    throw "Hook event '$eventName' property '$($property.Name)' differs from the loaded module's command-to-script association."
+                }
             }
         }
     }
@@ -177,9 +237,28 @@ function Test-CopilotAtelier
         $checks.Add([pscustomobject]@{ Code = 'InvalidSettings'; Severity = 'Error'; Path = $path.SettingsPath; Message = $_.Exception.Message })
     }
 
-    if ($path.OneDriveRoot -and (Test-Path -LiteralPath $path.LegacyLocalPath))
+    try
     {
-        $checks.Add([pscustomobject]@{ Code = 'LegacyTree'; Severity = 'Warning'; Path = $path.LegacyLocalPath; Message = 'A second legacy tree exists. Review it before any manual cleanup.' })
+        $pathComparer = Get-CopilotAtelierPathComparer -Path $path.TargetPath
+        $legacyLocalPath = [System.IO.Path]::GetFullPath($path.LegacyLocalPath).TrimEnd([char[]] '\/')
+        if (-not $pathComparer.Equals($legacyLocalPath, [System.IO.Path]::GetFullPath($path.TargetPath).TrimEnd([char[]] '\/')) -and
+            (Test-Path -LiteralPath $legacyLocalPath))
+        {
+            $checks.Add([pscustomobject]@{ Code = 'LegacyTree'; Severity = 'Warning'; Path = $legacyLocalPath; Message = 'A second legacy tree exists. Review it before any manual cleanup.' })
+        }
+        foreach ($legacyName in @('Agents', 'Instructions', 'Skills', 'Prompts', 'Hooks'))
+        {
+            $legacyPath = Join-Path -Path $path.TargetPath -ChildPath $legacyName
+            if (-not $pathComparer.Equals($legacyName, $legacyName.ToLowerInvariant()) -and
+                (Test-Path -LiteralPath $legacyPath -PathType Container))
+            {
+                $checks.Add([pscustomobject]@{ Code = 'LegacyTree'; Severity = 'Warning'; Path = $legacyPath; Message = 'A separate capitalized legacy tree is retained. Review it before any manual cleanup.' })
+            }
+        }
+    }
+    catch
+    {
+        $checks.Add([pscustomobject]@{ Code = 'LegacyInspectionFailed'; Severity = 'Warning'; Path = $path.TargetPath; Message = $_.Exception.Message })
     }
     foreach ($otherRoot in @('.claude', '.agents'))
     {

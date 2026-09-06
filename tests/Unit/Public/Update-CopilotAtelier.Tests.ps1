@@ -1,6 +1,7 @@
 BeforeAll {
     $script:projectPath = Convert-Path -LiteralPath (Join-Path -Path $PSScriptRoot -ChildPath '../../..')
     $script:moduleName = 'CopilotAtelier'
+    . (Join-Path $script:projectPath 'tests/Helpers/DeploymentProfile.ps1')
 
     # The subdirectory under output/ is a Sampler setting, so it is matched rather than hard-coded.
     $builtManifest = @(
@@ -20,6 +21,7 @@ BeforeAll {
 
 Describe 'Update-CopilotAtelier' -Tag 'Unit' {
     BeforeAll {
+        $script:selectionProfile = New-CopilotAtelierTestProfile -Root (Join-Path $TestDrive 'update-profile') -ProjectPath $script:projectPath
         Mock -CommandName Update-Module -ModuleName $script:moduleName
 
         Mock -CommandName Import-Module -ModuleName $script:moduleName -MockWith {
@@ -31,6 +33,10 @@ Describe 'Update-CopilotAtelier' -Tag 'Unit' {
                 TargetPath = 'TestDrive:/CopilotAtelier'
             }
         }
+    }
+
+    AfterAll {
+        Restore-CopilotAtelierTestProfile -Original $script:selectionProfile.Original
     }
 
     Context 'When the installed version is the newest one' {
@@ -123,6 +129,64 @@ Describe 'Update-CopilotAtelier' -Tag 'Unit' {
 
             Should -Invoke -CommandName Update-Module -ModuleName $script:moduleName -Times 0 -Exactly -Scope Context
             Should -Invoke -CommandName Install-CopilotAtelier -ModuleName $script:moduleName -Times 1 -Exactly -Scope Context
+        }
+    }
+
+    Context 'When choosing a deployment destination' {
+        BeforeAll {
+            Mock Find-Module -ModuleName CopilotAtelier {
+                [pscustomobject]@{ Name = 'CopilotAtelier'; Version = (Get-Module CopilotAtelier).Version.ToString() }
+            }
+            Mock Read-Host -ModuleName CopilotAtelier { throw 'Unexpected account prompt.' }
+        }
+
+        BeforeEach {
+            $env:OneDriveConsumer = Join-Path $script:selectionProfile.HomePath 'consumer'
+            $env:OneDriveCommercial = Join-Path $script:selectionProfile.HomePath 'commercial'
+            New-Item -ItemType Directory -Path $env:OneDriveConsumer, $env:OneDriveCommercial -Force | Out-Null
+        }
+
+        AfterEach {
+            $env:OneDriveConsumer = $null
+            $env:OneDriveCommercial = $null
+        }
+
+        It 'Should forward the normalized explicit destination to installation' {
+            $selected = Join-Path $script:selectionProfile.HomePath 'selected'
+            Update-CopilotAtelier -TargetPath ($selected + [IO.Path]::DirectorySeparatorChar) -Force | Out-Null
+            Should -Invoke Install-CopilotAtelier -ModuleName CopilotAtelier -Times 1 -Exactly -ParameterFilter { $TargetPath -eq $selected }
+            Should -Invoke Read-Host -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should reject ambiguous deployment selection before querying the repository' {
+            { Update-CopilotAtelier -Force } | Should -Throw -ExpectedMessage '*Specify -TargetPath*'
+            Should -Invoke Find-Module -ModuleName CopilotAtelier -Times 0 -Exactly
+            Should -Invoke Read-Host -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should not require an account when deployment is skipped' {
+            { Update-CopilotAtelier -SkipDeployment } | Should -Not -Throw
+            Should -Invoke Install-CopilotAtelier -ModuleName CopilotAtelier -Times 0 -Exactly
+            Should -Invoke Read-Host -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should forward explicit repair and redeploy the current version' {
+            $selected = Join-Path $script:selectionProfile.HomePath 'selected'
+            Update-CopilotAtelier -TargetPath $selected -Repair | Out-Null
+            Should -Invoke Install-CopilotAtelier -ModuleName CopilotAtelier -Times 1 -Exactly -ParameterFilter { $TargetPath -eq $selected -and $Repair }
+            Should -Invoke Update-Module -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should reject repair combined with skipped deployment' {
+            { Update-CopilotAtelier -Repair -SkipDeployment } | Should -Throw -ExpectedMessage '*Repair*SkipDeployment*'
+            Should -Invoke Find-Module -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should expose destination, repair, and preview through the Setup script' {
+            $parameters = (Get-Command (Join-Path $script:projectPath 'Setup-CopilotSettings.ps1')).Parameters.Keys
+            $parameters | Should -Contain 'TargetPath'
+            $parameters | Should -Contain 'Repair'
+            $parameters | Should -Contain 'WhatIf'
         }
     }
 

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Add explicit `-Repair` for modified Owned files and `-TargetPath` selection through Install, Update, and Setup, with preview support and untracked-file preservation. See [repair and recovery](README.md#repair-and-recovery).
 - Add read-only `Test-CopilotAtelier` deployment diagnostics and hash-aware `Uninstall-CopilotAtelier`, with explicit targets, non-interactive account resolution, and preservation of user content and configuration. See [deployment diagnostics and removal](README.md#deployment-diagnostics-and-removal).
 - Record per-file SHA-256 ownership in the Deployment record and validate paths and metadata before deployment or removal.
 - Bound SessionStart context to 4096 characters by default, configurable from 1024 through 16384 without disabling lifecycle or security hooks.
@@ -89,7 +90,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- Preserve user-added files and legacy trees during reinstall; reject locally modified files, reparse-point paths, and intervening changes instead of rebuilding deployment directories destructively. Reconcile a modified file by restoring or moving it before reinstalling; `-Force` does not overwrite it.
+- Fail deployment health for modified hook files and redirected event commands, including platform overrides and `-Quiet`; keep ordinary modified-file warnings distinct.
+- Recover interrupted file applies through atomic replacements and per-file Deployment-record checkpoints, including retries with different or older payloads; coordinate local install/removal without claiming a filesystem or cloud-sync transaction.
+- Validate portable path segments consistently before planning and when reading records, reject `.` and `..` explicitly, use target-native filename identity, and diagnose retained capitalized legacy trees without removing them.
+- Restore result-serialization type data after successful and failed builds, parse hook JSON with `ConvertFrom-Json`, and check built-in and implicit Prompt tool overrides without claiming runtime containment.
+- Preserve user-added files and legacy trees during reinstall; reject locally modified files, reparse-point paths, and intervening changes instead of rebuilding deployment directories destructively. Reconcile wanted edits before reinstalling or use explicit `-Repair` for recorded files; `-Force` does not overwrite them.
 - Quote the usage Prompt argument hint so its colon parses as YAML; validate every Prompt with a full YAML parser in the configuration security gate.
 - Pin Pester 5.7.1 and reject unsupported major versions in QA. Bound filesystem references in saved test reports to paths and labels so result export does not traverse live provider and assembly metadata; retain all test counts, failures, and coverage.
 

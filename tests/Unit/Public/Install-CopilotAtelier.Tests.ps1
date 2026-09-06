@@ -290,6 +290,42 @@ Describe 'Install-CopilotAtelier' -Tag 'Unit' {
             Exit-Sandbox -Original $script:updateOriginal
         }
 
+        It 'Should select an explicit destination without prompting for either OneDrive account' {
+            $consumer = Join-Path $script:updateRoot 'consumer'
+            $commercial = Join-Path $script:updateRoot 'commercial'
+            New-Item -ItemType Directory -Path $consumer, $commercial -Force | Out-Null
+            $env:OneDriveConsumer = $consumer
+            $env:OneDriveCommercial = $commercial
+            Mock Read-Host -ModuleName CopilotAtelier { throw 'Unexpected account prompt.' }
+            $selected = Join-Path $script:updateRoot 'selected'
+
+            $result = Install-CopilotAtelier -ContentPath $script:updateContent -TargetPath $selected -SkipCopilotCliEnvironment
+
+            $result.TargetPath | Should -Be $selected
+            Test-Path -LiteralPath (Join-Path $selected '.copilotatelier.json') | Should -BeTrue
+            Should -Invoke Read-Host -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should reject ambiguous install account selection without reaching Read-Host' {
+            $consumer = Join-Path $script:updateRoot 'consumer'
+            $commercial = Join-Path $script:updateRoot 'commercial'
+            New-Item -ItemType Directory -Path $consumer, $commercial -Force | Out-Null
+            $env:OneDriveConsumer = $consumer
+            $env:OneDriveCommercial = $commercial
+            Mock Read-Host -ModuleName CopilotAtelier { throw 'Unexpected account prompt.' }
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment } |
+                Should -Throw -ExpectedMessage '*Specify -TargetPath*'
+
+            Should -Invoke Read-Host -ModuleName CopilotAtelier -Times 0 -Exactly
+        }
+
+        It 'Should preview an explicit destination without creating it' {
+            $selected = Join-Path $script:updateRoot 'preview-selected'
+            Install-CopilotAtelier -ContentPath $script:updateContent -TargetPath $selected -SkipCopilotCliEnvironment -WhatIf | Out-Null
+            Test-Path -LiteralPath $selected | Should -BeFalse
+        }
+
         It 'Should preserve user-added files without claiming ownership' {
             $userFile = Join-Path $script:updateResult.TargetPath 'skills/personal.md'
             Set-Content -LiteralPath $userFile -Value 'personal workflow'
@@ -314,6 +350,84 @@ Describe 'Install-CopilotAtelier' -Tag 'Unit' {
             Get-Content -LiteralPath $changedFile -Raw | Should -Match 'user change'
             (Get-FileHash -LiteralPath $script:updateResult.SettingsPath).Hash | Should -Be $settingsHash
             (Get-FileHash -LiteralPath $recordPath).Hash | Should -Be $recordHash
+        }
+
+        It 'Should explicitly repair a modified Owned file without claiming personal files' {
+            (Get-Command Install-CopilotAtelier).Parameters.Keys | Should -Contain 'Repair'
+            $changedFile = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            $personalFile = Join-Path $script:updateResult.TargetPath 'skills/personal.md'
+            Set-Content -LiteralPath $changedFile -Value 'modified content'
+            Set-Content -LiteralPath $personalFile -Value 'personal content'
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair | Out-Null
+
+            (Get-FileHash -LiteralPath $changedFile).Hash |
+                Should -Be (Get-FileHash -LiteralPath (Join-Path $script:updateContent 'skills/marker.md')).Hash
+            Get-Content -LiteralPath $personalFile -Raw | Should -Match 'personal content'
+            $record = Get-Content -LiteralPath (Join-Path $script:updateResult.TargetPath '.copilotatelier.json') -Raw | ConvertFrom-Json
+            $record.Files.Path | Should -Not -Contain 'skills/personal.md'
+        }
+
+        It 'Should preview repair without changing files or the Deployment record' {
+            Set-Content -LiteralPath (Join-Path $script:updateResult.TargetPath 'skills/marker.md') -Value 'modified content'
+            $before = @(Get-ChildItem -LiteralPath $script:updateRoot -Recurse -File -Force |
+                Get-FileHash | ForEach-Object { "$($_.Path):$($_.Hash)" })
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair -WhatIf | Out-Null
+
+            @(Get-ChildItem -LiteralPath $script:updateRoot -Recurse -File -Force |
+                Get-FileHash | ForEach-Object { "$($_.Path):$($_.Hash)" }) | Should -Be $before
+        }
+
+        It 'Should refuse repair of an untracked file even with Force' {
+            $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
+            $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+            $record.Files = @($record.Files | Where-Object Path -ne 'skills/marker.md')
+            $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath
+            $personalFile = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Set-Content -LiteralPath $personalFile -Value 'untracked content'
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair -Force } |
+                Should -Throw -ExpectedMessage '*untracked*'
+
+            Get-Content -LiteralPath $personalFile -Raw | Should -Match 'untracked content'
+        }
+
+        It 'Should not claim matching untracked content during repair' {
+            $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
+            $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
+            $record.Files = @($record.Files | Where-Object Path -ne 'skills/marker.md')
+            $record | ConvertTo-Json -Depth 5 | Set-Content -LiteralPath $recordPath
+
+            Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair | Out-Null
+
+            (Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json).Files.Path |
+                Should -Not -Contain 'skills/marker.md'
+        }
+
+        It 'Should still detect changes made after repair planning' {
+            $changedFile = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Set-Content -LiteralPath $changedFile -Value 'modified content'
+            Mock -CommandName ConvertFrom-Jsonc -ModuleName CopilotAtelier -MockWith {
+                Set-Content -LiteralPath (Join-Path $env:HOME 'CopilotAtelier/skills/marker.md') -Value 'concurrent edit'
+                [pscustomobject]@{}
+            }
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair } |
+                Should -Throw -ExpectedMessage '*changed during*'
+
+            Get-Content -LiteralPath $changedFile -Raw | Should -Match 'concurrent edit'
+        }
+
+        It 'Should not remove a modified retired file during repair' {
+            $changedFile = Join-Path $script:updateResult.TargetPath 'skills/marker.md'
+            Set-Content -LiteralPath $changedFile -Value 'retain my edit'
+            Remove-Item -LiteralPath (Join-Path $script:updateContent 'skills/marker.md')
+
+            { Install-CopilotAtelier -ContentPath $script:updateContent -SkipCopilotCliEnvironment -Repair } |
+                Should -Throw -ExpectedMessage '*retired file*local changes*'
+
+            Get-Content -LiteralPath $changedFile -Raw | Should -Match 'retain my edit'
         }
 
         It 'Should remove only unchanged files retired from the payload' {
@@ -382,7 +496,7 @@ Describe 'Install-CopilotAtelier' -Tag 'Unit' {
             }
         }
 
-        It 'Should not claim an identical file absent from the ownership record' {
+        It 'Should not claim an identical file absent from the Deployment record' {
             $recordPath = Join-Path $script:updateResult.TargetPath '.copilotatelier.json'
             $record = Get-Content -LiteralPath $recordPath -Raw | ConvertFrom-Json
             $record.Files = @($record.Files | Where-Object Path -NE 'skills/marker.md')

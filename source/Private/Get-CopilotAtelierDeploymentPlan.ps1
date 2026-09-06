@@ -16,7 +16,11 @@ function Get-CopilotAtelierDeploymentPlan
 
         [Parameter(Mandatory = $true)]
         [System.Collections.IDictionary]
-        $Directory
+        $Directory,
+
+        [Parameter()]
+        [System.Management.Automation.SwitchParameter]
+        $Repair
     )
 
     $contentRootPath = [System.IO.Path]::GetFullPath($ContentPath).TrimEnd([char[]] '\/')
@@ -31,7 +35,8 @@ function Get-CopilotAtelierDeploymentPlan
     }
 
     $record = Get-CopilotAtelierDeploymentRecord -TargetPath $TargetPath
-    $previousFile = @{}
+    $pathComparer = Get-CopilotAtelierPathComparer -Path $TargetPath
+    $previousFile = [System.Collections.Generic.Dictionary[string, string]]::new($pathComparer)
     foreach ($file in $record.Files)
     {
         $previousFile[$file.Path] = $file.Sha256
@@ -40,7 +45,7 @@ function Get-CopilotAtelierDeploymentPlan
     $files = [System.Collections.Generic.List[object]]::new()
     $actions = [System.Collections.Generic.List[object]]::new()
     $unownedFiles = [System.Collections.Generic.List[string]]::new()
-    $incomingPath = [System.Collections.Generic.HashSet[string]]::new([System.StringComparer]::OrdinalIgnoreCase)
+    $incomingPath = [System.Collections.Generic.HashSet[string]]::new($pathComparer)
 
     foreach ($directoryName in $Directory.Keys)
     {
@@ -63,13 +68,14 @@ function Get-CopilotAtelierDeploymentPlan
                 {
                     throw "Refusing reparse point in payload '$($item.FullName)'."
                 }
+                $relativePath = $directoryName + '/' + $item.FullName.Substring($sourceRoot.Length + 1).Replace([System.IO.Path]::DirectorySeparatorChar, '/')
+                Assert-CopilotAtelierDeploymentPath -Path $relativePath
                 if ($item.PSIsContainer)
                 {
                     $pendingDirectory.Push($item.FullName)
                     continue
                 }
 
-                $relativePath = $directoryName + '/' + $item.FullName.Substring($sourceRoot.Length + 1).Replace('\', '/')
                 if (-not $incomingPath.Add($relativePath))
                 {
                     throw "Deployment conflict: duplicate payload path '$relativePath'."
@@ -86,9 +92,10 @@ function Get-CopilotAtelierDeploymentPlan
                         throw "Deployment conflict: '$relativePath' is not a regular file."
                     }
                     $currentHash = (Get-FileHash -LiteralPath $destination -Algorithm SHA256 -ErrorAction Stop).Hash
-                    if ($currentHash -ne $hash -and $currentHash -ne $previousFile[$relativePath])
+                    if ($currentHash -ne $hash -and $currentHash -ne $previousFile[$relativePath] -and
+                        -not ($Repair -and $previousFile.ContainsKey($relativePath)))
                     {
-                        throw "Deployment conflict: '$relativePath' has local or untracked changes. Reconcile it before installing; -Force does not overwrite it."
+                        throw "Deployment conflict: '$relativePath' has local or untracked changes. Reconcile it before installing; -Force does not overwrite it. -Repair replaces only modified Owned files."
                     }
                 }
 

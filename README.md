@@ -355,6 +355,8 @@ Useful switches:
 
 | Switch | Effect |
 |---|---|
+| `-TargetPath` | Selects the Canonical target explicitly for Install, Update, or Setup. Multiple OneDrive accounts require this switch; unattended calls never reach an account prompt. |
+| `-Repair` | Restores modified Owned files still in the payload. Available on Install, Update, and Setup; see [repair and recovery](#repair-and-recovery). |
 | `-IncludeClaudeCodeLinks` | Also links `~/.claude/skills` and `~/.agents/skills`. Off by default; see [Claude Code and Agent Skills clients](#claude-code-and-agent-skills-clients-opt-in). |
 | `-SkipCopilotCliEnvironment` | Leaves `COPILOT_ALLOW_ALL` alone. Installation otherwise sets it to `1` at User scope, which is what stops the GitHub Copilot CLI prompting for every tool call. |
 | `-WhatIf` | Reports what would change without touching anything. |
@@ -368,10 +370,14 @@ Update-CopilotAtelier -InformationAction Continue
 ```
 
 `Update-CopilotAtelier` compares the installed version against the Gallery,
-installs a newer one if available, and redeploys its owned files. User-added
+installs a newer one if available, and redeploys its Owned files. User-added
 files remain in place. A conflict with a locally changed file stops deployment;
 `-Force` does not override that protection. Use `-Force` to redeploy the current
-version and `-SkipDeployment` to stage an update you will deploy later.
+version, `-Repair` to explicitly replace modified Owned files, and
+`-SkipDeployment` to stage an update you will deploy later. Repair and skipped
+deployment cannot be combined. Pass the same `-TargetPath` on later commands
+when using a nondefault destination; destination selection is not persisted in
+the profile.
 
 `Get-CopilotAtelierVersion` answers "is what I have actually deployed?":
 
@@ -413,20 +419,34 @@ clone that sits at `~/OneDrive/CopilotAtelier/` — for example to
 
 ### What either path does
 
-The Customizations are copied into `~/OneDrive/CopilotAtelier/` when OneDrive
-is detected, or into `~/CopilotAtelier/` otherwise. Discovery links expose the
+The Customizations are copied into the explicit `-TargetPath`,
+`~/OneDrive/CopilotAtelier/` when one OneDrive account is detected, or
+`~/CopilotAtelier/` otherwise. Discovery links expose the
 five deployed directories. VS Code settings and keybindings are merged with
 timestamped backups. The Deployment record at `<target>/.copilotatelier.json`
-stores the version and each owned file's relative path and SHA-256.
+stores the version and each Owned file's relative path and SHA-256.
 
-Installation validates the complete file plan before writing, preserves
-untracked files and legacy trees, and retires only unchanged owned files.
+Installation validates the complete Deployment plan before writing, preserves
+untracked files and legacy trees, and retires only unchanged Owned files.
 Source and destination hashes are rechecked during apply. A non-empty real
 Discovery directory remains untouched unless `-Force` requests a lossless
 merge; conflicting content is still preserved. Reparse points at or below the
 selected payload and deployment roots are refused, not followed. Trusted parent
-aliases remain supported. Do not run deployment and removal concurrently;
-these checks are not a filesystem transaction or a sandbox.
+aliases remain supported. Local install and removal calls on the same Canonical
+target use an exclusive file handle to reject competing access. This is not a cloud-sync lock,
+filesystem transaction, or sandbox.
+
+Payload names use a portable segment format: no `.` or `..`, empty segments,
+Windows-reserved names, trailing dots or spaces, control characters, colons,
+literal backslashes, or wildcard characters. Validation happens before writes.
+Filename identity follows the selected filesystem's native case behavior,
+including case-distinct names on case-sensitive targets. Planning, duplicate
+detection, and record reading use the same policy. Use a tree with uniform case
+behavior; mixed per-directory policies are not a supported deployment target.
+The read-only case probe needs an existing ASCII-letter-named entry at the
+target or an ancestor whose case-flipped spelling is not a separate entry.
+If it cannot determine the policy, deployment fails before writes instead of
+guessing a platform default.
 
 ### 3. Agent plugin
 
@@ -541,9 +561,52 @@ Uninstall-CopilotAtelier -WhatIf
 Diagnostics check file hashes, version drift, Discovery targets, required hook
 scripts, hook configuration, and VS Code settings without executing hooks or
 changing the profile. `IsHealthy` and `-Quiet` mean no error was found; inspect
-warnings for modified files, duplicate skill links, and legacy deployments.
+warnings for modified non-hook files, duplicate skill links, and legacy
+deployments, including separately retained capitalized directories. Modified
+hook scripts or hook configuration are errors. Event commands, overrides, and
+command properties must match the loaded module's shipped hook definition;
+event-key presence alone is not sufficient. These comparisons do not execute
+hooks or prove authenticity of a writable module or Deployment record.
+Required hook script bytes also have to match the loaded module, even for
+untracked scripts; this diagnostic comparison does not grant ownership.
 Pass `-TargetPath` to inspect or remove a specific deployment. Ambiguous OneDrive
 accounts produce an error instead of an unattended prompt.
+
+### Repair and recovery
+
+```powershell
+Install-CopilotAtelier -TargetPath ~/CopilotAtelier -Repair -WhatIf
+Install-CopilotAtelier -TargetPath ~/CopilotAtelier -Repair
+Update-CopilotAtelier -TargetPath ~/CopilotAtelier -Repair
+```
+
+An Owned file is listed in the Deployment record with its expected SHA-256.
+Matching bytes alone never establish ownership. `-Repair` replaces modified
+Owned files that still exist in the requested payload. It does not back up
+their modified content: preserve wanted edits first. It never claims or
+overwrites untracked files, removes modified retired files, bypasses path
+guards, or ignores changes made after planning. `-Force` retains its existing,
+separate meaning. `Update-CopilotAtelier -Repair` queries the repository and
+redeploys even without a newer version; use Install for offline repair.
+
+Each file change has a pending operation recorded before its atomic replacement
+or removal, followed by a record checkpoint. A completed apply retains the
+schema-1 format. After interruption, diagnostics report `IncompleteDeployment`;
+retry Install with the same, different, or older payload to reconcile completed
+operations and finish the new Deployment plan. Use this updated installer for
+recovery before switching to an older installer that cannot interpret pending
+operations. Conflicting external edits still require manual reconciliation.
+
+Settings, keybindings, and Discovery links are separate operations and are not
+rolled back with payload changes. Abandoned staging files are retained with a
+warning for manual inspection; matching bytes do not establish ownership.
+The empty `.copilotatelier-<hash>.lock` file beside the Canonical target remains
+after use so local callers coordinate through the same file. Do not remove it
+while a deployment or removal is running. A process exit releases the handle;
+no elevation or lock-file deletion is needed to retry. Coordinate OneDrive
+updates between machines separately.
+
+### Removal and rollback
 
 After reviewing the preview, run `Uninstall-CopilotAtelier`. It confirms once,
 removes only recorded files with matching hashes, and cleans empty managed
@@ -558,7 +621,7 @@ Back up the old tree and reconcile conflicts before updating. Never use an
 older destructive installer to bypass a conflict. To roll back payload content,
 use the current installer with `-ContentPath` pointing at the older module's
 content, preview with `-WhatIf`, then apply after reviewing the plan. File-hash
-diagnostics cover recorded owned files, not all personal or legacy content.
+diagnostics cover recorded Owned files, not all personal or legacy content.
 
 The safety boundary is the selected payload and deployment roots. Records and
 paths are validated as data, and neither diagnostics nor deployment executes
@@ -580,7 +643,18 @@ The configuration gate in
 rejects wildcard tools, unbounded delegation, Prompt tool expansion, unsafe
 hook timeouts, and persistent remote authorization. Existing unrestricted MCP
 access has a named, shrink-only baseline; passing the gate does not turn that
-debt into containment. Runtime agent quality still needs behavioral evals.
+debt into containment. Hook JSON is parsed with `ConvertFrom-Json`; the
+test-local checker remains directly covered by adversarial fixtures and is not
+part of the public module API.
+
+For a named Custom agent, explicit Prompt tools must be a subset of that
+agent's declared tools. For built-in `agent`, `ask`, `plan`, legacy `edit`, or
+an implicit target, nonempty Prompt tool overrides fail the static gate because
+the repository has no versioned runtime tool manifest for that target. Omitted
+tools inherit the client context; an explicit empty list is also accepted.
+Unknown named targets fail. Acceptance of inheritance or an empty list does
+not prove an effective runtime boundary. Runtime tool containment and agent
+quality still require client verification and behavioral evaluations.
 
 ## Troubleshooting Skills
 

@@ -1,6 +1,6 @@
 ---
 status: current
-last-verified: 2026-09-05
+last-verified: 2026-09-06
 owner: software-engineer
 source: .memory-bank/decisions and source/
 ---
@@ -71,6 +71,9 @@ in `techContext.md`, not here.
 - File equality is not deployment ownership. Preserve untracked matches;
     removal requires both a recorded relative path and matching bytes. Source
     and deployment trees must not overlap.
+- Persist each pending file operation before atomic replacement and checkpoint
+    it afterwards. Recovery reconciles observed hashes, not assumed completion;
+    local exclusive handles coordinate callers, not cross-machine cloud sync.
 - Validate paths at and below the selected root, including non-directory
     ancestors and reparse points. Trusted parent aliases are outside that
     boundary; hash checks are not an atomic transaction or a sandbox.
